@@ -1,0 +1,16 @@
+[package]
+name = "kyrene"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = ["crates/*"]
+
+[dependencies]
+kyrene-core = { path = "crates/kyrene-core" }
+kyrene-util = { path = "crates/kyrene-util" }
+kyrene-macro = { path = "crates/kyrene-macro" }
+
+[[example]]
+name = "demo"
+path = "examples/demo.rs"
