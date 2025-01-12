@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use downcast_rs::DowncastSync;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
@@ -7,14 +8,12 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use crate::{
     component::{Component, Ref},
     entity::Entity,
+    event::DynEvent,
     world::World,
 };
 
 pub type WorldOpFnMut =
     dyn for<'a> FnOnce(&'a mut World) -> BoxFuture<'a, Arc<dyn Component>> + Send + Sync;
-
-// pub type WorldOpFn<'a> =
-//     dyn FnOnce(&'a World) -> BoxFuture<'a, Arc<dyn WorldOpResult<'a>>> + Send + Sync + 'a;
 
 pub struct Deferred {
     task: Box<WorldOpFnMut>,
@@ -70,13 +69,18 @@ impl WorldView {
             .await
     }
 
-    pub async fn insert<T: Component>(&self, entity: Entity, component: T) -> Option<T> {
+    pub async fn insert<T: Component>(&self, entity: Entity, component: T) {
         self.defer(move |world: &mut World| async move { world.insert(entity, component) }.boxed())
             .await
     }
 
     pub async fn get<T: Component>(&self, entity: Entity) -> Option<Ref<T>> {
         self.defer(move |world: &mut World| async move { world.get::<T>(entity).await }.boxed())
+            .await
+    }
+
+    pub async fn event<T: DowncastSync>(&self) -> DynEvent {
+        self.defer(move |world: &mut World| async move { world.event::<T>() }.boxed())
             .await
     }
 }

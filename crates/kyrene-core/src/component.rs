@@ -1,53 +1,64 @@
 use std::{
     any::TypeId,
+    marker::PhantomData,
     ops::{Deref, DerefMut},
-    sync::Arc,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
 use kyrene_util::{FxHashMap, TypeIdMap};
 
-use crate::{entity::Entity, lock::Mutex};
+use crate::{
+    entity::Entity,
+    loan::{LoanMut, LoanStorage},
+};
 
 pub trait Component: DowncastSync {}
 impl_downcast!(sync Component);
 impl<T: DowncastSync> Component for T {}
 
+pub struct ComponentEntry {
+    type_id: TypeId,
+    loan: LoanStorage<Box<dyn Component>>,
+}
+
+impl ComponentEntry {
+    pub fn new<T: Component>(component: T) -> Self {
+        ComponentEntry {
+            type_id: TypeId::of::<T>(),
+            loan: LoanStorage::new(Box::new(component)),
+        }
+    }
+
+    pub fn is<T: Component>(&self) -> bool {
+        self.type_id == TypeId::of::<T>()
+    }
+}
+
 pub struct Ref<T: Component> {
-    inner: Option<T>,
-    loan: Arc<Mutex<Option<Box<dyn Component>>>>,
+    inner: LoanMut<Box<dyn Component>>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Component> Deref for Ref<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.inner.as_ref().unwrap()
+        self.inner.downcast_ref().unwrap()
     }
 }
 
 impl<T: Component> DerefMut for Ref<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner.as_mut().unwrap()
-    }
-}
-
-impl<T: Component> Drop for Ref<T> {
-    fn drop(&mut self) {
-        let Ref { inner, loan } = self;
-        let mut lock = loan.try_lock().unwrap();
-        let inner = inner.take().unwrap();
-        let inner: Box<dyn Component> = Box::new(inner);
-        *lock = Some(inner);
+        self.inner.downcast_mut().unwrap()
     }
 }
 
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
-pub struct EntityComponents(TypeIdMap<Arc<Mutex<Option<Box<dyn Component>>>>>);
+pub struct EntityComponents(TypeIdMap<ComponentEntry>);
 
 impl Deref for EntityComponents {
-    type Target = TypeIdMap<Arc<Mutex<Option<Box<dyn Component>>>>>;
+    type Target = TypeIdMap<ComponentEntry>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -66,79 +77,40 @@ pub struct Components {
 }
 
 impl Components {
-    pub fn insert<T: Component>(&mut self, entity: Entity, component: T) -> Option<T> {
+    pub fn insert_discard<T: Component>(&mut self, entity: Entity, component: T) {
         let component_type_id = TypeId::of::<T>();
 
-        let old = self.map.entry(entity).or_default().insert(
-            component_type_id,
-            Arc::new(Mutex::new(Some(Box::new(component)))),
-        );
-
-        if let Some(old) = old {
-            if let Ok(old) = Arc::try_unwrap(old) {
-                let old = old.into_inner();
-
-                let Some(old) = old else {
-                    panic!("Internal error: Old component still borrowed");
-                };
-
-                if let Ok(old) = old.downcast::<T>() {
-                    // todo: fire EntityEvent
-                    Some(*old)
-                } else {
-                    panic!("Internal error: component downcast failed")
-                }
-            } else {
-                log::debug!("Couldn't acquire unique access to replaced component");
-                None
-            }
-        } else {
-            // todo: fire EntityEvent
-            None
-        }
+        self.map
+            .entry(entity)
+            .or_default()
+            .insert(component_type_id, ComponentEntry::new(component));
     }
 
-    pub fn remove<T: Component>(&mut self, entity: Entity) -> Option<T> {
+    pub async fn remove<T: Component>(&mut self, entity: Entity) -> Option<T> {
         let component_type_id = TypeId::of::<T>();
 
         let components = self.map.get_mut(&entity)?;
 
         let component = components.remove(&component_type_id)?;
 
-        let Ok(component) = Arc::try_unwrap(component) else {
-            log::debug!("Couldn't acquire unique access to removed component");
-            return None;
-        };
+        let component = component.loan.await_owned().await;
 
-        let component = component.into_inner();
-        let Some(component) = component else {
-            panic!("Internal error: Component still borrowed");
-        };
-
-        if let Ok(component) = component.downcast::<T>() {
-            // todo: fire EntityEvent
-            Some(*component)
-        } else {
-            panic!("Internal error: component downcast failed")
-        }
+        let component = *component.downcast::<T>().unwrap_or_else(|_| unreachable!());
+        Some(component)
     }
 
-    pub async fn get_async<T: Component>(&self, entity: Entity) -> Option<Ref<T>> {
+    pub async fn get<T: Component>(&mut self, entity: Entity) -> Option<Ref<T>> {
         let component_type_id = TypeId::of::<T>();
 
-        let components = self.map.get(&entity)?;
+        let components = self.map.get_mut(&entity)?;
 
-        let component = components.get(&component_type_id)?;
+        let component = components.get_mut(&component_type_id)?;
 
-        let mut locked = component.lock().await;
-
-        let inner = locked.take()?;
-
-        let inner = *inner.downcast().unwrap_or_else(|_| unreachable!());
+        let inner = component.loan.await_loan_mut().await;
 
         Some(Ref {
-            inner: Some(inner),
-            loan: component.clone(),
+            inner,
+            _marker: PhantomData,
         })
     }
 }

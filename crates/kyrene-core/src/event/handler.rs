@@ -8,16 +8,6 @@ use crate::world_view::WorldView;
 
 use super::DynEvent;
 
-pub async fn await_and_handle_event(
-    world: WorldView,
-    event: &DynEvent,
-    handler_fn: &dyn EventHandler,
-) {
-    let listener = event.listen();
-    let payload = listener.await;
-    handler_fn.run_dyn(world, payload).await;
-}
-
 pub trait EventHandler: Send + Sync {
     fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()>;
 }
@@ -25,7 +15,7 @@ pub trait EventHandler: Send + Sync {
 pub trait EventHandlerFn<M>: Send + Sync {
     type Event: DowncastSync;
 
-    fn run(&self, world: WorldView, event: Self::Event) -> BoxFuture<'static, ()>;
+    fn run(&self, world: WorldView, event: Arc<Self::Event>) -> BoxFuture<'static, ()>;
 }
 
 pub trait IntoEventHandler<M>: Send + Sync {
@@ -60,7 +50,7 @@ where
 {
     fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()> {
         let event: Arc<<F as EventHandlerFn<M>>::Event> = event.into_any_arc().downcast().unwrap();
-        let event = Arc::into_inner(event).unwrap();
+        // let event = Arc::into_inner(event).unwrap();
         self.func.run(world, event).boxed()
     }
 }
@@ -78,15 +68,15 @@ where
     }
 }
 
-impl<Func, Fut, T> EventHandlerFn<fn(WorldView, T)> for Func
+impl<Func, Fut, T> EventHandlerFn<fn(WorldView, Arc<T>)> for Func
 where
-    Func: Fn(WorldView, T) -> Fut + Send + Sync + 'static,
+    Func: Fn(WorldView, Arc<T>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + Sync + 'static,
     T: DowncastSync,
 {
     type Event = T;
 
-    fn run(&self, world: WorldView, event: Self::Event) -> BoxFuture<'static, ()> {
+    fn run(&self, world: WorldView, event: Arc<Self::Event>) -> BoxFuture<'static, ()> {
         (self)(world, event).boxed()
     }
 }
@@ -108,10 +98,10 @@ impl EventHandlers {
             .entry(TypeId::of::<T>())
             .or_default()
             .push(handler.into_event_handler());
-        self.add_event::<T>()
+        self.event::<T>()
     }
 
-    pub fn add_event<T>(&mut self) -> DynEvent
+    pub fn event<T>(&mut self) -> DynEvent
     where
         T: DowncastSync,
     {
