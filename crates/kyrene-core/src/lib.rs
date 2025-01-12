@@ -5,6 +5,7 @@ pub mod entity;
 pub mod event;
 pub mod loan;
 pub mod lock;
+pub mod resource;
 pub mod world;
 pub mod world_view;
 
@@ -17,7 +18,7 @@ pub mod prelude {
         entity::Entity,
         event::{Event, EventListener},
         lock::{MappedMutexGuard, Mutex, MutexGuard},
-        world::World,
+        world::{World, WorldTick},
         world_view::WorldView,
     };
     pub use std::sync::Arc;

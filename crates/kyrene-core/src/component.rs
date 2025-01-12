@@ -35,8 +35,8 @@ impl ComponentEntry {
 }
 
 pub struct Ref<T: Component> {
-    inner: LoanMut<Box<dyn Component>>,
-    _marker: PhantomData<T>,
+    pub(crate) inner: LoanMut<Box<dyn Component>>,
+    pub(crate) _marker: PhantomData<T>,
 }
 
 impl<T: Component> Deref for Ref<T> {
@@ -77,6 +77,20 @@ pub struct Components {
 }
 
 impl Components {
+    pub async fn insert<T: Component>(&mut self, entity: Entity, component: T) -> Option<T> {
+        let component_type_id = TypeId::of::<T>();
+
+        let old = self
+            .map
+            .entry(entity)
+            .or_default()
+            .insert(component_type_id, ComponentEntry::new(component))?;
+
+        let old = old.loan.await_owned().await;
+        let old: T = *old.downcast().unwrap_or_else(|_| unreachable!());
+        Some(old)
+    }
+
     pub fn insert_discard<T: Component>(&mut self, entity: Entity, component: T) {
         let component_type_id = TypeId::of::<T>();
 

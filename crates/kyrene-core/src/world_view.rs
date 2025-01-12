@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use downcast_rs::DowncastSync;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
@@ -69,8 +68,15 @@ impl WorldView {
             .await
     }
 
-    pub async fn insert<T: Component>(&self, entity: Entity, component: T) {
-        self.defer(move |world: &mut World| async move { world.insert(entity, component) }.boxed())
+    pub async fn insert<T: Component>(&self, entity: Entity, component: T) -> Option<T> {
+        self.defer(move |world: &mut World| {
+            async move { world.insert(entity, component).await }.boxed()
+        })
+        .await
+    }
+
+    pub async fn remove<T: Component>(&self, entity: Entity) -> Option<T> {
+        self.defer(move |world: &mut World| async move { world.remove::<T>(entity).await }.boxed())
             .await
     }
 
@@ -79,8 +85,41 @@ impl WorldView {
             .await
     }
 
-    pub async fn event<T: DowncastSync>(&self) -> DynEvent {
+    pub async fn insert_resource<T: Component>(&self, component: T) -> Option<T> {
+        self.defer(move |world: &mut World| {
+            async move { world.insert_resource(component).await }.boxed()
+        })
+        .await
+    }
+
+    pub async fn remove_resource<T: Component>(&self) -> Option<T> {
+        self.defer(move |world: &mut World| {
+            async move { world.remove_resource::<T>().await }.boxed()
+        })
+        .await
+    }
+
+    pub async fn get_resource<T: Component>(&self) -> Option<Ref<T>> {
+        self.defer(move |world: &mut World| async move { world.get_resource::<T>().await }.boxed())
+            .await
+    }
+
+    pub async fn event<T: Component>(&self) -> DynEvent {
         self.defer(move |world: &mut World| async move { world.event::<T>() }.boxed())
+            .await
+    }
+
+    pub async fn fire_event<T: Component + Clone>(&self, payload: T) {
+        self.defer(move |world: &mut World| async move { world.fire_event(payload) }.boxed())
+            .await
+    }
+
+    pub async fn fire_event_with<T, F>(&self, payload: F)
+    where
+        F: FnMut() -> T + Send + Sync + 'static,
+        T: Component + Clone,
+    {
+        self.defer(move |world: &mut World| async move { world.fire_event_with(payload) }.boxed())
             .await
     }
 }

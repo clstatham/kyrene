@@ -1,5 +1,7 @@
 use kyrene::prelude::*;
 
+struct CurrentPlayer(Entity);
+
 #[derive(Debug, Clone)]
 struct FooEvent {
     entity: Entity,
@@ -28,32 +30,32 @@ async fn bar_event_handler(world: WorldView, event: Arc<BarEvent>) {
     *counter += event.value;
 }
 
+async fn world_tick_handler(world: WorldView, event: Arc<WorldTick>) {
+    let entity = world.get_resource::<CurrentPlayer>().await.unwrap().0;
+
+    world.fire_event(FooEvent { entity }).await;
+
+    if event.tick % 4 == 0 {
+        world.fire_event(BarEvent { entity, value: 4 }).await;
+    }
+}
+
 #[kyrene::main]
 async fn main() {
     let mut world = World::new();
 
-    let foo_event = world.add_event_handler(foo_event_handler);
+    world.add_event_handler(world_tick_handler);
+
+    world.add_event_handler(foo_event_handler);
     world.add_event_handler(foo_event_handler_2);
 
-    let bar_event = world.add_event_handler(bar_event_handler);
+    world.add_event_handler(bar_event_handler);
 
     let entity = world.entity();
-    world.insert::<i32>(entity, 0);
-    world.insert::<f32>(entity, 0.0);
+    world.insert::<i32>(entity, 0).await;
+    world.insert::<f32>(entity, 0.0).await;
 
-    tokio::spawn(async move {
-        loop {
-            foo_event.fire(FooEvent { entity });
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    });
-
-    tokio::spawn(async move {
-        loop {
-            bar_event.fire(BarEvent { entity, value: 2 });
-            tokio::time::sleep(Duration::from_millis(400)).await;
-        }
-    });
+    world.insert_resource(CurrentPlayer(entity)).await;
 
     world.run().await;
 }
