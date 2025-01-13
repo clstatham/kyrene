@@ -3,10 +3,8 @@ use downcast_rs::DowncastSync;
 use crate::{
     component::{Component, Components, Ref},
     entity::{Entities, Entity},
-    event::{
-        handler::{EventHandlerFn, EventHandlers},
-        DynEvent,
-    },
+    event::DynEvent,
+    handler::{EventHandlerFn, EventHandlers},
     resource::Resources,
     world_view::WorldView,
 };

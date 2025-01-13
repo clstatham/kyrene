@@ -1,10 +1,9 @@
 use std::{any::TypeId, marker::PhantomData};
 
-use kyrene_util::TypeIdMap;
-
 use crate::{
     loan::LoanStorage,
     prelude::{Component, Ref},
+    util::TypeIdMap,
 };
 
 #[derive(Default)]

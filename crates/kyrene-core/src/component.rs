@@ -5,11 +5,11 @@ use std::{
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
-use kyrene_util::{FxHashMap, TypeIdMap};
 
 use crate::{
     entity::Entity,
     loan::{LoanMut, LoanStorage},
+    util::{FxHashMap, TypeIdMap},
 };
 
 pub trait Component: DowncastSync {}
@@ -79,13 +79,11 @@ pub struct Components {
 impl Components {
     pub async fn insert<T: Component>(&mut self, entity: Entity, component: T) -> Option<T> {
         let component_type_id = TypeId::of::<T>();
-
         let old = self
             .map
             .entry(entity)
             .or_default()
             .insert(component_type_id, ComponentEntry::new(component))?;
-
         let old = old.loan.await_owned().await;
         let old: T = *old.downcast().unwrap_or_else(|_| unreachable!());
         Some(old)
@@ -93,7 +91,6 @@ impl Components {
 
     pub fn insert_discard<T: Component>(&mut self, entity: Entity, component: T) {
         let component_type_id = TypeId::of::<T>();
-
         self.map
             .entry(entity)
             .or_default()
@@ -102,26 +99,18 @@ impl Components {
 
     pub async fn remove<T: Component>(&mut self, entity: Entity) -> Option<T> {
         let component_type_id = TypeId::of::<T>();
-
         let components = self.map.get_mut(&entity)?;
-
         let component = components.remove(&component_type_id)?;
-
         let component = component.loan.await_owned().await;
-
         let component = *component.downcast::<T>().unwrap_or_else(|_| unreachable!());
         Some(component)
     }
 
     pub async fn get<T: Component>(&mut self, entity: Entity) -> Option<Ref<T>> {
         let component_type_id = TypeId::of::<T>();
-
         let components = self.map.get_mut(&entity)?;
-
         let component = components.get_mut(&component_type_id)?;
-
         let inner = component.loan.await_loan_mut().await;
-
         Some(Ref {
             inner,
             _marker: PhantomData,

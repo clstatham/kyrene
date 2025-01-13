@@ -8,7 +8,6 @@ members = ["crates/*"]
 
 [dependencies]
 kyrene-core = { path = "crates/kyrene-core" }
-kyrene-util = { path = "crates/kyrene-util" }
 kyrene-macro = { path = "crates/kyrene-macro" }
 
 [[example]]

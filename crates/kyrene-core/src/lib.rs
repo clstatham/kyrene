@@ -1,11 +1,12 @@
-pub mod access;
 pub mod component;
 pub mod entity;
 #[macro_use]
 pub mod event;
+pub mod handler;
 pub mod loan;
 pub mod lock;
 pub mod resource;
+pub mod util;
 pub mod world;
 pub mod world_view;
 

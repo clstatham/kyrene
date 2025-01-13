@@ -2,11 +2,8 @@ use std::{any::TypeId, future::Future, marker::PhantomData, sync::Arc};
 
 use downcast_rs::DowncastSync;
 use futures::{future::BoxFuture, FutureExt};
-use kyrene_util::TypeIdMap;
 
-use crate::world_view::WorldView;
-
-use super::DynEvent;
+use crate::{event::DynEvent, util::TypeIdMap, world_view::WorldView};
 
 pub trait EventHandler: Send + Sync {
     fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()>;
@@ -50,7 +47,6 @@ where
 {
     fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()> {
         let event: Arc<<F as EventHandlerFn<M>>::Event> = event.into_any_arc().downcast().unwrap();
-        // let event = Arc::into_inner(event).unwrap();
         self.func.run(world, event).boxed()
     }
 }

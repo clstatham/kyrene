@@ -3,8 +3,6 @@ use std::{any::TypeId, sync::Arc};
 use downcast_rs::DowncastSync;
 pub use event_listener::{IntoNotification, Listener, Notification};
 
-pub mod handler;
-
 #[derive(Debug)]
 pub struct Event<T: Send + Sync = ()>(Arc<event_listener::Event<T>>);
 

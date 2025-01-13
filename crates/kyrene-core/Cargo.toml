@@ -4,12 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-kyrene-util = { path = "../kyrene-util" }
-
 downcast-rs = "2.0"
 event-listener = "5.4"
 tokio = { version = "1.43", features = ["full"] }
 log = "0.4.22"
-async-channel = "2.3.1"
 futures = "0.3.31"
 async-trait = "0.1.85"
+hashbrown = "0.15.2"
+rustc-hash = "2.1.0"
