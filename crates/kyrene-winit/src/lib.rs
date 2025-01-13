@@ -77,13 +77,6 @@ impl RunWinit for World {
         let world_shutdown_event = self.event::<WorldShutdown>();
 
         std::thread::spawn(move || {
-            #[cfg(debug_assertions)]
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-
-            #[cfg(not(debug_assertions))]
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
@@ -146,17 +139,22 @@ impl RunWinit for World {
                     let view = view.clone();
                     async move {
                         loop {
-                            println!("Tick!");
                             tick += 1;
                             view.fire_event(WorldTick { tick }).await;
                         }
                     }
                 });
 
-                loop {
-                    while let Ok(op) = op_rx.try_recv() {
-                        op.run(&mut self).await;
+                tokio::spawn(async move {
+                    loop {
+                        while let Ok(op) = op_rx.try_recv() {
+                            op.run(&mut self).await;
+                        }
                     }
+                });
+
+                loop {
+                    tokio::task::yield_now().await;
                 }
             });
         });
@@ -175,10 +173,10 @@ impl RunWinit for World {
 }
 
 #[derive(Clone)]
-struct WindowCreated(Window);
+struct WindowCreated(Arc<Mutex<Option<Window>>>);
 
 async fn window_created(world: WorldView, event: Arc<WindowCreated>) {
-    let window = Arc::into_inner(event).unwrap().0;
+    let window = event.0.lock().await.take().unwrap();
     world.insert_resource(window).await;
 }
 
@@ -205,7 +203,8 @@ impl winit::application::ApplicationHandler for WinitApp {
             .unwrap();
         let window = Window(Arc::new(window));
         self.window = Some(window.clone());
-        self.window_created_event.fire(WindowCreated(window));
+        self.window_created_event
+            .fire(WindowCreated(Arc::new(Mutex::new(Some(window)))));
     }
 
     fn device_event(
