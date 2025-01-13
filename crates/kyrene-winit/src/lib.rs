@@ -1,7 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use kyrene_core::{
-    event::DynEvent,
+    event::Event,
     lock::Mutex,
     prelude::{
         tokio::{self},
@@ -75,6 +75,8 @@ impl RunWinit for World {
         let window_resized_event = self.event::<WindowResized>();
 
         let world_shutdown_event = self.event::<WorldShutdown>();
+
+        let redraw_requested_event = self.event::<RedrawRequested>();
 
         std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -165,6 +167,7 @@ impl RunWinit for World {
             winit_event_event,
             window_resized_event,
             world_shutdown_event,
+            redraw_requested_event,
             window_settings,
         };
 
@@ -180,12 +183,16 @@ async fn window_created(world: WorldView, event: Arc<WindowCreated>) {
     world.insert_resource(window).await;
 }
 
+#[derive(Clone)]
+struct RedrawRequested;
+
 struct WinitApp {
     window: Option<Window>,
-    window_created_event: DynEvent,
-    winit_event_event: DynEvent,
-    window_resized_event: DynEvent,
-    world_shutdown_event: DynEvent,
+    window_created_event: Event<WindowCreated>,
+    winit_event_event: Event<WinitEvent>,
+    window_resized_event: Event<WindowResized>,
+    world_shutdown_event: Event<WorldShutdown>,
+    redraw_requested_event: Event<RedrawRequested>,
     window_settings: WindowSettings,
 }
 
@@ -252,6 +259,9 @@ impl winit::application::ApplicationHandler for WinitApp {
             WindowEvent::CloseRequested => {
                 self.world_shutdown_event.fire(WorldShutdown);
                 event_loop.exit();
+            }
+            WindowEvent::RedrawRequested => {
+                self.redraw_requested_event.fire(RedrawRequested);
             }
             _ => {}
         }

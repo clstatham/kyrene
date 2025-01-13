@@ -5,7 +5,7 @@ use downcast_rs::DowncastSync;
 use crate::{
     component::{Component, Components, Mut, Ref},
     entity::{Entities, Entity},
-    event::DynEvent,
+    event::Event,
     handler::{EventHandlerFn, EventHandlers},
     lock::Mutex,
     plugin::Plugin,
@@ -82,7 +82,7 @@ impl World {
         self.resources.get_mut::<T>().await
     }
 
-    pub fn event<T: Component>(&mut self) -> DynEvent {
+    pub fn event<T: Component>(&mut self) -> Event<T> {
         self.event_handlers.event::<T>()
     }
 
@@ -90,7 +90,7 @@ impl World {
         self.event_handlers.event::<T>().fire(payload);
     }
 
-    pub fn add_event_handler<T, F, M>(&mut self, handler: F) -> DynEvent
+    pub fn add_event_handler<T, F, M>(&mut self, handler: F) -> Event<T>
     where
         T: DowncastSync,
         F: EventHandlerFn<M, Event = T> + 'static,

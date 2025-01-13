@@ -3,7 +3,11 @@ use std::{any::TypeId, future::Future, marker::PhantomData, sync::Arc};
 use downcast_rs::DowncastSync;
 use futures::{future::BoxFuture, FutureExt};
 
-use crate::{event::DynEvent, util::TypeIdMap, world_view::WorldView};
+use crate::{
+    event::{DynEvent, Event},
+    util::TypeIdMap,
+    world_view::WorldView,
+};
 
 pub trait EventHandler: Send + Sync {
     fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()>;
@@ -84,7 +88,7 @@ pub struct EventHandlers {
 }
 
 impl EventHandlers {
-    pub fn add_handler<T, F, M>(&mut self, handler: F) -> DynEvent
+    pub fn add_handler<T, F, M>(&mut self, handler: F) -> Event<T>
     where
         T: DowncastSync,
         F: EventHandlerFn<M, Event = T> + 'static,
@@ -97,23 +101,24 @@ impl EventHandlers {
         self.event::<T>()
     }
 
-    pub fn event<T>(&mut self) -> DynEvent
+    pub fn event<T>(&mut self) -> Event<T>
     where
         T: DowncastSync,
     {
         if let Some(event) = self.events.get(&TypeId::of::<T>()) {
-            event.clone()
+            Event::from_dyn_event(event.clone())
         } else {
             let event = DynEvent::new::<T>();
             self.events.insert(TypeId::of::<T>(), event.clone());
-            event
+            Event::from_dyn_event(event)
         }
     }
 
-    pub fn get_event<T>(&self) -> Option<DynEvent>
+    pub fn get_event<T>(&self) -> Option<Event<T>>
     where
         T: DowncastSync,
     {
-        self.events.get(&TypeId::of::<T>()).cloned()
+        let event = self.events.get(&TypeId::of::<T>()).cloned()?;
+        Some(Event::from_dyn_event(event))
     }
 }

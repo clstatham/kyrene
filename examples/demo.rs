@@ -48,6 +48,7 @@ async fn world_tick_handler(world: WorldView, event: Arc<WorldTick>) {
 
 async fn startup(world: WorldView, _event: Arc<WorldStartup>) {
     let entity = world.entity().await;
+
     world.insert::<i32>(entity, 0).await;
     world.insert::<f32>(entity, 0.0).await;
 

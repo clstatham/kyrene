@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use crate::{
     component::{Component, Mut, Ref},
     entity::Entity,
-    event::DynEvent,
+    event::Event,
     world::World,
 };
 
@@ -115,7 +115,7 @@ impl WorldView {
             .await
     }
 
-    pub async fn event<T: Component>(&self) -> DynEvent {
+    pub async fn event<T: Component>(&self) -> Event<T> {
         self.defer(move |world: &mut World| async move { world.event::<T>() }.boxed())
             .await
     }
