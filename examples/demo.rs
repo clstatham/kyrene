@@ -1,4 +1,6 @@
 use kyrene::prelude::*;
+use kyrene_core::world::WorldStartup;
+use kyrene_winit::WindowSettings;
 
 struct CurrentPlayer(Entity);
 
@@ -8,13 +10,13 @@ struct FooEvent {
 }
 
 async fn foo_event_handler(world: WorldView, event: Arc<FooEvent>) {
-    let mut counter = world.get::<i32>(event.entity).await.unwrap();
+    let mut counter = world.get_mut::<i32>(event.entity).await.unwrap();
     println!("{:?}", *counter);
     *counter += 1;
 }
 
 async fn foo_event_handler_2(world: WorldView, event: Arc<FooEvent>) {
-    let mut counter = world.get::<f32>(event.entity).await.unwrap();
+    let mut counter = world.get_mut::<f32>(event.entity).await.unwrap();
     println!("{:?}", *counter);
     *counter += 1.0;
 }
@@ -26,12 +28,16 @@ struct BarEvent {
 }
 
 async fn bar_event_handler(world: WorldView, event: Arc<BarEvent>) {
-    let mut counter = world.get::<i32>(event.entity).await.unwrap();
+    let mut counter = world.get_mut::<i32>(event.entity).await.unwrap();
     *counter += event.value;
 }
 
 async fn world_tick_handler(world: WorldView, event: Arc<WorldTick>) {
-    let entity = world.get_resource::<CurrentPlayer>().await.unwrap().0;
+    let Some(player) = world.get_resource::<CurrentPlayer>().await else {
+        return;
+    };
+
+    let entity = player.0;
 
     world.fire_event(FooEvent { entity }).await;
 
@@ -40,10 +46,18 @@ async fn world_tick_handler(world: WorldView, event: Arc<WorldTick>) {
     }
 }
 
-#[kyrene::main]
-async fn main() {
+async fn startup(world: WorldView, _event: Arc<WorldStartup>) {
+    let entity = world.entity().await;
+    world.insert::<i32>(entity, 0).await;
+    world.insert::<f32>(entity, 0.0).await;
+
+    world.insert_resource(CurrentPlayer(entity)).await;
+}
+
+fn main() {
     let mut world = World::new();
 
+    world.add_event_handler(startup);
     world.add_event_handler(world_tick_handler);
 
     world.add_event_handler(foo_event_handler);
@@ -51,11 +65,5 @@ async fn main() {
 
     world.add_event_handler(bar_event_handler);
 
-    let entity = world.entity();
-    world.insert::<i32>(entity, 0).await;
-    world.insert::<f32>(entity, 0.0).await;
-
-    world.insert_resource(CurrentPlayer(entity)).await;
-
-    world.run().await;
+    world.run_winit(WindowSettings::default());
 }

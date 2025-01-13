@@ -5,7 +5,7 @@ use futures::FutureExt;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 
 use crate::{
-    component::{Component, Ref},
+    component::{Component, Mut, Ref},
     entity::Entity,
     event::DynEvent,
     world::World,
@@ -29,6 +29,12 @@ impl Deferred {
 #[derive(Clone)]
 pub struct WorldView {
     pub(crate) tx: UnboundedSender<Deferred>,
+}
+
+impl WorldView {
+    pub fn from_inner(tx: UnboundedSender<Deferred>) -> Self {
+        Self { tx }
+    }
 }
 
 impl WorldView {
@@ -85,6 +91,11 @@ impl WorldView {
             .await
     }
 
+    pub async fn get_mut<T: Component>(&self, entity: Entity) -> Option<Mut<T>> {
+        self.defer(move |world: &mut World| async move { world.get_mut::<T>(entity).await }.boxed())
+            .await
+    }
+
     pub async fn insert_resource<T: Component>(&self, component: T) -> Option<T> {
         self.defer(move |world: &mut World| {
             async move { world.insert_resource(component).await }.boxed()
@@ -111,15 +122,6 @@ impl WorldView {
 
     pub async fn fire_event<T: Component + Clone>(&self, payload: T) {
         self.defer(move |world: &mut World| async move { world.fire_event(payload) }.boxed())
-            .await
-    }
-
-    pub async fn fire_event_with<T, F>(&self, payload: F)
-    where
-        F: FnMut() -> T + Send + Sync + 'static,
-        T: Component + Clone,
-    {
-        self.defer(move |world: &mut World| async move { world.fire_event_with(payload) }.boxed())
             .await
     }
 }

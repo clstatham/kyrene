@@ -32,7 +32,7 @@ impl<T: Send + Sync> Event<T> {
     }
 
     pub fn listen(&self) -> EventListener<T> {
-        self.0.listen()
+        EventListener::new(self.clone())
     }
 }
 
@@ -42,7 +42,25 @@ impl<T: Send + Sync> Default for Event<T> {
     }
 }
 
-pub type EventListener<T> = event_listener::EventListener<T>;
+pub struct EventListener<T: Send + Sync> {
+    event: Event<T>,
+    listener: Option<event_listener::EventListener<T>>,
+}
+
+impl<T: Send + Sync> EventListener<T> {
+    pub(crate) fn new(event: Event<T>) -> Self {
+        Self {
+            listener: Some(event.0.listen()),
+            event,
+        }
+    }
+
+    pub async fn next(&mut self) -> T {
+        let listener = self.listener.take().unwrap();
+        self.listener = Some(self.event.0.listen());
+        listener.await
+    }
+}
 
 #[macro_export]
 macro_rules! stack_listener {

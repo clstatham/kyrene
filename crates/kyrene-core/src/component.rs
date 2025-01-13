@@ -8,7 +8,7 @@ use downcast_rs::{impl_downcast, DowncastSync};
 
 use crate::{
     entity::Entity,
-    loan::{LoanMut, LoanStorage},
+    loan::{Loan, LoanMut, LoanStorage},
     util::{FxHashMap, TypeIdMap},
 };
 
@@ -35,7 +35,7 @@ impl ComponentEntry {
 }
 
 pub struct Ref<T: Component> {
-    pub(crate) inner: LoanMut<Box<dyn Component>>,
+    pub(crate) inner: Loan<Box<dyn Component>>,
     pub(crate) _marker: PhantomData<T>,
 }
 
@@ -47,7 +47,20 @@ impl<T: Component> Deref for Ref<T> {
     }
 }
 
-impl<T: Component> DerefMut for Ref<T> {
+pub struct Mut<T: Component> {
+    pub(crate) inner: LoanMut<Box<dyn Component>>,
+    pub(crate) _marker: PhantomData<T>,
+}
+
+impl<T: Component> Deref for Mut<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.downcast_ref().unwrap()
+    }
+}
+
+impl<T: Component> DerefMut for Mut<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.inner.downcast_mut().unwrap()
     }
@@ -110,8 +123,19 @@ impl Components {
         let component_type_id = TypeId::of::<T>();
         let components = self.map.get_mut(&entity)?;
         let component = components.get_mut(&component_type_id)?;
-        let inner = component.loan.await_loan_mut().await;
+        let inner = component.loan.await_loan().await;
         Some(Ref {
+            inner,
+            _marker: PhantomData,
+        })
+    }
+
+    pub async fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<Mut<T>> {
+        let component_type_id = TypeId::of::<T>();
+        let components = self.map.get_mut(&entity)?;
+        let component = components.get_mut(&component_type_id)?;
+        let inner = component.loan.await_loan_mut().await;
+        Some(Mut {
             inner,
             _marker: PhantomData,
         })

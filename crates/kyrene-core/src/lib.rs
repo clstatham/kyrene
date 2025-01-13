@@ -5,6 +5,7 @@ pub mod event;
 pub mod handler;
 pub mod loan;
 pub mod lock;
+pub mod plugin;
 pub mod resource;
 pub mod util;
 pub mod world;

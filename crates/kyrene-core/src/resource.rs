@@ -1,6 +1,7 @@
 use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
+    component::Mut,
     loan::LoanStorage,
     prelude::{Component, Ref},
     util::TypeIdMap,
@@ -38,9 +39,21 @@ impl Resources {
         let component_type_id = TypeId::of::<T>();
 
         let component = self.map.get_mut(&component_type_id)?;
-        let inner = component.await_loan_mut().await;
+        let inner = component.await_loan().await;
 
         Some(Ref {
+            inner,
+            _marker: PhantomData,
+        })
+    }
+
+    pub async fn get_mut<T: Component>(&mut self) -> Option<Mut<T>> {
+        let component_type_id = TypeId::of::<T>();
+
+        let component = self.map.get_mut(&component_type_id)?;
+        let inner = component.await_loan_mut().await;
+
+        Some(Mut {
             inner,
             _marker: PhantomData,
         })

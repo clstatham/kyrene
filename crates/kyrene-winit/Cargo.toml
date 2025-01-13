@@ -1,0 +1,8 @@
+[package]
+name = "kyrene-winit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kyrene-core = { path = "../kyrene-core" }
+winit = "0.30.8"

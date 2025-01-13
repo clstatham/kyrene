@@ -9,6 +9,7 @@ members = ["crates/*"]
 [dependencies]
 kyrene-core = { path = "crates/kyrene-core" }
 kyrene-macro = { path = "crates/kyrene-macro" }
+kyrene-winit = { path = "crates/kyrene-winit" }
 
 [[example]]
 name = "demo"

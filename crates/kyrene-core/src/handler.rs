@@ -79,8 +79,8 @@ where
 
 #[derive(Default, Clone)]
 pub struct EventHandlers {
-    pub(crate) handlers: TypeIdMap<Vec<Arc<dyn EventHandler>>>,
-    pub(crate) events: TypeIdMap<DynEvent>,
+    pub handlers: TypeIdMap<Vec<Arc<dyn EventHandler>>>,
+    pub events: TypeIdMap<DynEvent>,
 }
 
 impl EventHandlers {
