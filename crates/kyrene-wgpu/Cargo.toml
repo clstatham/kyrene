@@ -1,0 +1,9 @@
+[package]
+name = "kyrene-wgpu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kyrene-core = { path = "../kyrene-core" }
+kyrene-winit = { path = "../kyrene-winit" }
+wgpu = "23.0.1"

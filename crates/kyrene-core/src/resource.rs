@@ -35,6 +35,11 @@ impl Resources {
         Some(component)
     }
 
+    pub fn contains<T: Component>(&self) -> bool {
+        let component_type_id = TypeId::of::<T>();
+        self.map.contains_key(&component_type_id)
+    }
+
     pub async fn get<T: Component>(&mut self) -> Option<Ref<T>> {
         let component_type_id = TypeId::of::<T>();
 

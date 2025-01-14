@@ -1,7 +1,8 @@
 use std::{any::TypeId, marker::PhantomData, sync::Arc};
 
 use downcast_rs::DowncastSync;
-pub use event_listener::{IntoNotification, Listener, Notification};
+
+use crate::{handler::DynEventHandlers, prelude::WorldView};
 
 pub struct Event<T: DowncastSync = ()> {
     event: DynEvent,
@@ -18,6 +19,7 @@ impl<T: DowncastSync> Clone for Event<T> {
 }
 
 impl<T: DowncastSync> Event<T> {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             event: DynEvent::new::<T>(),
@@ -33,126 +35,81 @@ impl<T: DowncastSync> Event<T> {
         }
     }
 
-    pub fn fire(&self, tag: T) {
-        self.event.fire(tag);
+    pub fn fire_blocking(&self, world: WorldView, tag: T) -> usize {
+        self.event.fire_blocking(world, tag)
     }
 
-    pub fn fire_with<F>(&self, tag: F)
-    where
-        F: FnMut() -> T,
-    {
-        self.event.fire_with(tag);
-    }
-
-    pub fn listen(&self) -> EventListener<T> {
-        EventListener::new(self.event.clone())
+    pub async fn fire(&self, world: WorldView, tag: T, await_all_handlers: bool) -> usize {
+        self.event.fire(world, tag, await_all_handlers).await
     }
 }
 
-impl<T: DowncastSync> Default for Event<T> {
-    fn default() -> Self {
-        Self::new()
-    }
+pub(crate) struct DynEvent {
+    pub(crate) handlers: DynEventHandlers,
+    type_id: TypeId,
 }
 
-pub struct EventListener<T: DowncastSync> {
-    event: DynEvent,
-    listener: Option<event_listener::EventListener<Arc<dyn DowncastSync>>>,
-    _marker: PhantomData<T>,
-}
-
-impl<T: DowncastSync> EventListener<T> {
-    pub(crate) fn new(event: DynEvent) -> Self {
+impl Clone for DynEvent {
+    fn clone(&self) -> Self {
         Self {
-            listener: Some(event.event.listen()),
-            event,
-            _marker: PhantomData,
+            handlers: self.handlers.clone(),
+            type_id: self.type_id,
         }
     }
-
-    pub async fn next(&mut self) -> Arc<T> {
-        let listener = self.listener.replace(self.event.event.listen()).unwrap();
-        let tag = listener.await;
-        DowncastSync::into_any_arc(tag).downcast().unwrap()
-    }
-
-    pub fn next_blocking(&mut self) -> Arc<T> {
-        let listener = self.listener.replace(self.event.event.listen()).unwrap();
-        let tag = listener.wait();
-        DowncastSync::into_any_arc(tag).downcast().unwrap()
-    }
-}
-
-#[macro_export]
-macro_rules! stack_listener {
-    ($event:ident => $listener:ident) => {
-        ::event_listener::listener!($event.0 => $listener)
-    };
-}
-
-#[derive(Clone)]
-pub struct DynEvent {
-    event: Arc<event_listener::Event<Arc<dyn DowncastSync>>>,
-    type_id: TypeId,
 }
 
 impl DynEvent {
     pub fn new<T: DowncastSync>() -> Self {
         Self {
-            event: Arc::new(event_listener::Event::with_tag()),
+            handlers: DynEventHandlers::new(),
             type_id: TypeId::of::<T>(),
         }
     }
 
-    pub fn listen(&self) -> DynEventListener {
-        DynEventListener::new(self.clone())
-    }
-
-    #[track_caller]
-    pub fn fire<T: DowncastSync>(&self, tag: T) {
+    pub fn fire_blocking<T: DowncastSync>(&self, world: WorldView, tag: T) -> usize {
         assert_eq!(
             TypeId::of::<T>(),
             self.type_id,
             "Event Type ID mismatch; Check if you're sending the right kind of payload!"
         );
         let tag: Arc<dyn DowncastSync> = Arc::new(tag);
-        self.event.notify(usize::MAX.tag(tag));
+
+        let handlers = self.handlers.handlers.blocking_read();
+
+        for handler in handlers.iter() {
+            pollster::block_on(handler.run_dyn(world.clone(), tag.clone()));
+        }
+
+        handlers.len()
     }
 
-    #[track_caller]
-    pub fn fire_with<T: DowncastSync, F: FnMut() -> T>(&self, mut tag: F) {
+    pub async fn fire<T: DowncastSync>(
+        &self,
+        world: WorldView,
+        tag: T,
+        await_all_handlers: bool,
+    ) -> usize {
         assert_eq!(
             TypeId::of::<T>(),
             self.type_id,
             "Event Type ID mismatch; Check if you're sending the right kind of payload!"
         );
-        self.event.notify(usize::MAX.tag_with(move || {
-            let tag: Arc<dyn DowncastSync> = Arc::new(tag());
-            tag
-        }));
-    }
-}
+        let tag: Arc<dyn DowncastSync> = Arc::new(tag);
 
-pub struct DynEventListener {
-    event: DynEvent,
-    listener: Option<event_listener::EventListener<Arc<dyn DowncastSync>>>,
-}
+        let handlers = self.handlers.handlers.read().await;
+        let mut join_handles = Vec::new();
 
-impl DynEventListener {
-    pub(crate) fn new(event: DynEvent) -> Self {
-        Self {
-            listener: Some(event.event.listen()),
-            event,
+        for handler in handlers.iter() {
+            let jh = tokio::spawn(handler.run_dyn(world.clone(), tag.clone()));
+            join_handles.push(jh);
         }
-    }
 
-    pub async fn next(&mut self) -> Arc<dyn DowncastSync> {
-        let listener = self.listener.replace(self.event.event.listen()).unwrap();
-        listener.await
-    }
+        if await_all_handlers {
+            for handle in join_handles {
+                handle.await.unwrap();
+            }
+        }
 
-    pub fn next_blocking(&mut self) -> Arc<dyn DowncastSync> {
-        let listener = self.listener.replace(self.event.event.listen()).unwrap();
-        listener.wait()
+        handlers.len()
     }
 }

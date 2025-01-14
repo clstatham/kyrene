@@ -5,21 +5,22 @@ use futures::{future::BoxFuture, FutureExt};
 
 use crate::{
     event::{DynEvent, Event},
+    lock::RwLock,
     util::TypeIdMap,
     world_view::WorldView,
 };
 
-pub trait EventHandler: Send + Sync {
+pub(crate) trait EventHandler: Send + Sync {
     fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()>;
 }
 
-pub trait EventHandlerFn<M>: Send + Sync {
+pub trait EventHandlerFn<M>: Send + Sync + 'static {
     type Event: DowncastSync;
 
     fn run(&self, world: WorldView, event: Arc<Self::Event>) -> BoxFuture<'static, ()>;
 }
 
-pub trait IntoEventHandler<M>: Send + Sync {
+pub(crate) trait IntoEventHandler<M>: Send + Sync {
     type EventHandler: EventHandler;
 
     fn into_event_handler(self) -> Arc<Self::EventHandler>;
@@ -51,7 +52,7 @@ where
 {
     fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()> {
         let event: Arc<<F as EventHandlerFn<M>>::Event> = event.into_any_arc().downcast().unwrap();
-        self.func.run(world, event).boxed()
+        self.func.run(world, event)
     }
 }
 
@@ -81,44 +82,47 @@ where
     }
 }
 
-#[derive(Default, Clone)]
-pub struct EventHandlers {
-    pub handlers: TypeIdMap<Vec<Arc<dyn EventHandler>>>,
-    pub events: TypeIdMap<DynEvent>,
+#[derive(Clone)]
+pub(crate) struct DynEventHandlers {
+    pub handlers: Arc<RwLock<Vec<Arc<dyn EventHandler>>>>,
 }
 
-impl EventHandlers {
-    pub fn add_handler<T, F, M>(&mut self, handler: F) -> Event<T>
-    where
-        T: DowncastSync,
-        F: EventHandlerFn<M, Event = T> + 'static,
-        M: 'static,
-    {
-        self.handlers
-            .entry(TypeId::of::<T>())
-            .or_default()
-            .push(handler.into_event_handler());
-        self.event::<T>()
-    }
-
-    pub fn event<T>(&mut self) -> Event<T>
-    where
-        T: DowncastSync,
-    {
-        if let Some(event) = self.events.get(&TypeId::of::<T>()) {
-            Event::from_dyn_event(event.clone())
-        } else {
-            let event = DynEvent::new::<T>();
-            self.events.insert(TypeId::of::<T>(), event.clone());
-            Event::from_dyn_event(event)
+impl DynEventHandlers {
+    pub fn new() -> Self {
+        Self {
+            handlers: Arc::new(RwLock::new(Vec::new())),
         }
     }
+}
 
-    pub fn get_event<T>(&self) -> Option<Event<T>>
+#[derive(Default, Clone)]
+pub(crate) struct Events {
+    pub entries: TypeIdMap<DynEvent>,
+}
+
+impl Events {
+    pub fn add_event<T: DowncastSync>(&mut self) -> Event<T> {
+        let event = DynEvent::new::<T>();
+        self.entries.insert(TypeId::of::<T>(), event.clone());
+        Event::from_dyn_event(event)
+    }
+
+    pub fn get_event<T: DowncastSync>(&self) -> Option<Event<T>> {
+        let event = self.entries.get(&TypeId::of::<T>())?.clone();
+        Some(Event::from_dyn_event(event))
+    }
+
+    pub fn add_handler<T, F, M>(&self, handler: F)
     where
         T: DowncastSync,
+        F: EventHandlerFn<M, Event = T>,
+        M: 'static,
     {
-        let event = self.events.get(&TypeId::of::<T>()).cloned()?;
-        Some(Event::from_dyn_event(event))
+        let handler: Arc<dyn EventHandler> = handler.into_event_handler();
+        let event = self
+            .entries
+            .get(&TypeId::of::<T>())
+            .expect("Event not added to world");
+        event.handlers.handlers.blocking_write().push(handler);
     }
 }

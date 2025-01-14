@@ -1,24 +1,24 @@
 use std::sync::Arc;
 
 use downcast_rs::DowncastSync;
+use tracing::level_filters::LevelFilter;
 
 use crate::{
     component::{Component, Components, Mut, Ref},
     entity::{Entities, Entity},
     event::Event,
-    handler::{EventHandlerFn, EventHandlers},
-    lock::Mutex,
+    handler::{EventHandlerFn, Events},
+    lock::RwLock,
     plugin::Plugin,
     resource::Resources,
-    util::TypeIdMap,
     world_view::WorldView,
 };
 
 pub struct World {
-    pub entities: Entities,
-    pub components: Components,
-    pub resources: Resources,
-    pub event_handlers: EventHandlers,
+    entities: Entities,
+    components: Components,
+    resources: Resources,
+    events: Events,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -28,11 +28,11 @@ impl Default for World {
             entities: Entities::default(),
             components: Components::default(),
             resources: Resources::default(),
-            event_handlers: EventHandlers::default(),
+            events: Events::default(),
         };
-        this.event::<WorldStartup>();
-        this.event::<WorldTick>();
-        this.event::<WorldShutdown>();
+        this.add_event::<WorldStartup>();
+        this.add_event::<WorldTick>();
+        this.add_event::<WorldShutdown>();
         this
     }
 }
@@ -74,6 +74,10 @@ impl World {
         self.resources.remove::<T>().await
     }
 
+    pub fn has_resource<T: Component>(&self) -> bool {
+        self.resources.contains::<T>()
+    }
+
     pub async fn get_resource<T: Component>(&mut self) -> Option<Ref<T>> {
         self.resources.get::<T>().await
     }
@@ -82,86 +86,47 @@ impl World {
         self.resources.get_mut::<T>().await
     }
 
-    pub fn event<T: Component>(&mut self) -> Event<T> {
-        self.event_handlers.event::<T>()
+    #[track_caller]
+    pub fn add_event<T: Component>(&mut self) -> Event<T> {
+        self.events.add_event::<T>()
     }
 
-    pub fn fire_event<T: Component + Clone>(&mut self, payload: T) {
-        self.event_handlers.event::<T>().fire(payload);
+    pub fn get_event<T: Component>(&self) -> Option<Event<T>> {
+        self.events.get_event::<T>()
     }
 
-    pub fn add_event_handler<T, F, M>(&mut self, handler: F) -> Event<T>
+    pub fn add_event_handler<T, F, M>(&mut self, handler: F)
     where
         T: DowncastSync,
         F: EventHandlerFn<M, Event = T> + 'static,
         M: 'static,
     {
-        self.event_handlers.add_handler(handler)
+        self.events.add_handler(handler);
     }
 
-    pub fn run(mut self) {
-        #[cfg(debug_assertions)]
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+    pub fn into_world_view(self) -> WorldView {
+        WorldView {
+            world: Arc::new(RwLock::new(self)),
+        }
+    }
 
-        #[cfg(not(debug_assertions))]
+    pub fn run(self) {
+        tracing::subscriber::set_global_default(
+            tracing_subscriber::FmtSubscriber::builder()
+                .with_max_level(LevelFilter::DEBUG)
+                .finish(),
+        )
+        .unwrap();
+
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .unwrap();
 
+        let view = self.into_world_view();
+
         runtime.block_on(async move {
-            let (tx, mut op_rx) = tokio::sync::mpsc::unbounded_channel();
-            let view = WorldView { tx };
-
-            let mut total_listeners = TypeIdMap::default();
-            let listeners_ready = Arc::new(Mutex::new(TypeIdMap::default()));
-
-            // spawn all event listeners
-            let mut event_handlers = self.event_handlers.clone();
-            for (event_type_id, mut handlers) in event_handlers.handlers.drain() {
-                let event = event_handlers.events.remove(&event_type_id).unwrap();
-                total_listeners.insert(event_type_id, handlers.len());
-                for handler in handlers.drain(..) {
-                    tokio::spawn({
-                        let view = view.clone();
-                        let event = event.clone();
-                        let listeners_ready = listeners_ready.clone();
-                        let mut listener = event.listen();
-
-                        async move {
-                            *listeners_ready
-                                .lock()
-                                .await
-                                .entry(event_type_id)
-                                .or_insert(0usize) += 1;
-
-                            loop {
-                                let payload = listener.next().await;
-                                handler.run_dyn(view.clone(), payload).await;
-                            }
-                        }
-                    });
-                }
-            }
-
-            // wait for all event listeners to be ready and listening
-            loop {
-                if listeners_ready
-                    .lock()
-                    .await
-                    .iter()
-                    .all(|(k, v)| *v == total_listeners[k])
-                {
-                    break;
-                }
-
-                tokio::task::yield_now().await;
-            }
-
-            self.fire_event(WorldStartup);
+            view.fire_event(WorldStartup, true).await;
 
             // spawn WorldTick task
             let mut tick = 0;
@@ -170,16 +135,7 @@ impl World {
                 async move {
                     loop {
                         tick += 1;
-                        view.fire_event(WorldTick { tick }).await;
-                    }
-                }
-            });
-
-            // await and apply deferred ops
-            tokio::spawn(async move {
-                loop {
-                    while let Some(op) = op_rx.recv().await {
-                        op.run(&mut self).await;
+                        view.fire_event(WorldTick { tick }, true).await;
                     }
                 }
             });
@@ -187,8 +143,6 @@ impl World {
             loop {
                 tokio::task::yield_now().await;
             }
-
-            // todo: fire WorldShutdown event
         });
     }
 }
