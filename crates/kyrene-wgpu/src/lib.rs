@@ -1,7 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use kyrene_core::{plugin::Plugin, prelude::WorldView, world::World};
-use kyrene_winit::{RedrawRequested, Window};
+use kyrene_winit::{RedrawRequested, WindowCreated};
 use texture::texture_format::{DEPTH_FORMAT, VIEW_FORMAT};
 
 pub mod texture;
@@ -100,12 +100,12 @@ impl CommandBuffers {
     }
 }
 
-async fn create_surface(world: &mut World, window: &Window) {
-    if world.has_resource::<WindowSurface>() {
+async fn create_surface(world: WorldView, event: Arc<WindowCreated>) {
+    if world.has_resource::<WindowSurface>().await {
         return;
     }
 
-    let window = &**window;
+    let window = &*event.0;
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
@@ -118,33 +118,29 @@ async fn create_surface(world: &mut World, window: &Window) {
             .unwrap()
     };
 
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        })
-        .await
-        .unwrap();
+    let adapter = kyrene_core::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: Some(&surface),
+        force_fallback_adapter: false,
+    }))
+    .unwrap();
 
     let mut required_limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
     required_limits.max_push_constant_size = 256;
 
-    let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::MULTIVIEW
-                    | wgpu::Features::PUSH_CONSTANTS
-                    | wgpu::Features::TEXTURE_BINDING_ARRAY
-                    | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
-                required_limits,
-                label: None,
-                memory_hints: wgpu::MemoryHints::Performance,
-            },
-            None,
-        )
-        .await
-        .unwrap();
+    let (device, queue) = kyrene_core::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            required_features: wgpu::Features::MULTIVIEW
+                | wgpu::Features::PUSH_CONSTANTS
+                | wgpu::Features::TEXTURE_BINDING_ARRAY
+                | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
+            required_limits,
+            label: None,
+            memory_hints: wgpu::MemoryHints::Performance,
+        },
+        None,
+    ))
+    .unwrap();
 
     let caps = surface.get_capabilities(&adapter);
 
@@ -198,6 +194,9 @@ impl Plugin for WgpuPlugin {
         world.add_event::<PreRender>();
         world.add_event::<Render>();
         world.add_event::<PostRender>();
+
+        world.add_event_handler(create_surface);
+        world.add_event_handler(redraw_requested);
     }
 }
 

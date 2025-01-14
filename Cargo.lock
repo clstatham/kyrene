@@ -164,6 +164,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "async_fn_traits"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc58d489c5f2d2c5be31b9004cec7af25a70d23df4d8111715eee736234cf217"
+dependencies = [
+ "paste",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1022,6 +1031,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1091,6 +1109,7 @@ version = "0.1.0"
 dependencies = [
  "kyrene-core",
  "kyrene-macro",
+ "kyrene-wgpu",
  "kyrene-winit",
 ]
 
@@ -1099,10 +1118,12 @@ name = "kyrene-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "async_fn_traits",
  "console-subscriber",
  "downcast-rs 2.0.1",
  "futures",
  "hashbrown 0.15.2",
+ "itertools 0.14.0",
  "log",
  "pollster",
  "rustc-hash 2.1.0",
@@ -1799,7 +1820,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn",

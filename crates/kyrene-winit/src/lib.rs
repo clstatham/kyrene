@@ -2,8 +2,8 @@ use std::{ops::Deref, sync::Arc};
 
 use kyrene_core::{
     event::Event,
-    lock::Mutex,
-    prelude::{tokio, Component, World, WorldView},
+    plugin::Plugin,
+    prelude::{tokio, World, WorldView},
     world::{WorldShutdown, WorldStartup, WorldTick},
 };
 use tracing::level_filters::LevelFilter;
@@ -61,19 +61,18 @@ pub trait RunWinit {
 }
 
 impl RunWinit for World {
-    fn run_winit(mut self, window_settings: WindowSettings) {
+    fn run_winit(self, window_settings: WindowSettings) {
         let event_loop = winit::event_loop::EventLoop::new().unwrap();
 
-        let window_created_event = self.add_event::<WindowCreated>();
-        self.add_event_handler(window_created);
+        let window_created_event = self.get_event::<WindowCreated>().unwrap();
 
-        let winit_event_event = self.add_event::<WinitEvent>();
+        let winit_event_event = self.get_event::<WinitEvent>().unwrap();
 
-        let window_resized_event = self.add_event::<WindowResized>();
+        let window_resized_event = self.get_event::<WindowResized>().unwrap();
 
-        let world_shutdown_event = self.add_event::<WorldShutdown>();
+        let world_shutdown_event = self.get_event::<WorldShutdown>().unwrap();
 
-        let redraw_requested_event = self.add_event::<RedrawRequested>();
+        let redraw_requested_event = self.get_event::<RedrawRequested>().unwrap();
 
         let view = self.into_world_view();
 
@@ -129,13 +128,20 @@ impl RunWinit for World {
     }
 }
 
-#[derive(Clone)]
-struct WindowCreated(Arc<Mutex<Option<Window>>>);
+pub struct WinitPlugin;
 
-async fn window_created(world: WorldView, event: Arc<WindowCreated>) {
-    let window = event.0.lock().await.take().unwrap();
-    world.insert_resource(window).await;
+impl Plugin for WinitPlugin {
+    async fn build(self, world: &mut World) {
+        world.add_event::<WindowCreated>();
+        world.add_event::<WinitEvent>();
+        world.add_event::<WindowResized>();
+        world.add_event::<WorldShutdown>();
+        world.add_event::<RedrawRequested>();
+    }
 }
+
+#[derive(Clone)]
+pub struct WindowCreated(pub Window);
 
 #[derive(Clone, Copy, Debug)]
 pub struct RedrawRequested;
@@ -165,10 +171,8 @@ impl winit::application::ApplicationHandler for WinitApp {
             .unwrap();
         let window = Window(Arc::new(window));
         self.window = Some(window.clone());
-        self.window_created_event.fire_blocking(
-            self.world.clone(),
-            WindowCreated(Arc::new(Mutex::new(Some(window)))),
-        );
+        self.window_created_event
+            .fire_blocking(self.world.clone(), WindowCreated(window));
     }
 
     fn device_event(

@@ -102,6 +102,9 @@ pub(crate) struct Events {
 
 impl Events {
     pub fn add_event<T: DowncastSync>(&mut self) -> Event<T> {
+        if let Some(event) = self.get_event::<T>() {
+            return event;
+        }
         let event = DynEvent::new::<T>();
         self.entries.insert(TypeId::of::<T>(), event.clone());
         Event::from_dyn_event(event)
@@ -112,7 +115,12 @@ impl Events {
         Some(Event::from_dyn_event(event))
     }
 
-    pub fn add_handler<T, F, M>(&self, handler: F)
+    pub fn has_event<T: DowncastSync>(&self) -> bool {
+        self.entries.contains_key(&TypeId::of::<T>())
+    }
+
+    #[track_caller]
+    pub fn add_handler<T, F, M>(&mut self, handler: F)
     where
         T: DowncastSync,
         F: EventHandlerFn<M, Event = T>,
@@ -121,8 +129,9 @@ impl Events {
         let handler: Arc<dyn EventHandler> = handler.into_event_handler();
         let event = self
             .entries
-            .get(&TypeId::of::<T>())
-            .expect("Event not added to world");
+            .entry(TypeId::of::<T>())
+            .or_insert_with(|| DynEvent::new::<T>())
+            .clone();
         event.handlers.handlers.blocking_write().push(handler);
     }
 }

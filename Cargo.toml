@@ -10,6 +10,7 @@ members = ["crates/*"]
 kyrene-core = { path = "crates/kyrene-core" }
 kyrene-macro = { path = "crates/kyrene-macro" }
 kyrene-winit = { path = "crates/kyrene-winit" }
+kyrene-wgpu = { path = "crates/kyrene-wgpu" }
 
 [[example]]
 name = "demo"

@@ -5,11 +5,12 @@ use std::{
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
+use itertools::Either;
 
 use crate::{
-    entity::Entity,
+    entity::{Entity, EntityMap, EntitySet},
     loan::{Loan, LoanMut, LoanStorage},
-    util::{FxHashMap, TypeIdMap},
+    util::TypeIdMap,
 };
 
 pub trait Component: DowncastSync {}
@@ -67,36 +68,26 @@ impl<T: Component> DerefMut for Mut<T> {
 }
 
 #[derive(Default)]
-#[allow(clippy::type_complexity)]
-pub struct EntityComponents(TypeIdMap<ComponentEntry>);
-
-impl Deref for EntityComponents {
-    type Target = TypeIdMap<ComponentEntry>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for EntityComponents {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Default)]
 pub struct Components {
-    map: FxHashMap<Entity, EntityComponents>,
+    entity_map: EntityMap<TypeIdMap<ComponentEntry>>,
+    component_map: TypeIdMap<EntitySet>,
 }
 
 impl Components {
     pub async fn insert<T: Component>(&mut self, entity: Entity, component: T) -> Option<T> {
         let component_type_id = TypeId::of::<T>();
+
+        self.component_map
+            .entry(component_type_id)
+            .or_default()
+            .insert(entity);
+
         let old = self
-            .map
+            .entity_map
             .entry(entity)
             .or_default()
             .insert(component_type_id, ComponentEntry::new(component))?;
+
         let old = old.loan.await_owned().await;
         let old: T = *old.downcast().unwrap_or_else(|_| unreachable!());
         Some(old)
@@ -104,16 +95,28 @@ impl Components {
 
     pub fn insert_discard<T: Component>(&mut self, entity: Entity, component: T) {
         let component_type_id = TypeId::of::<T>();
-        self.map
+
+        self.entity_map
             .entry(entity)
             .or_default()
             .insert(component_type_id, ComponentEntry::new(component));
+
+        self.component_map
+            .entry(component_type_id)
+            .or_default()
+            .insert(entity);
     }
 
     pub async fn remove<T: Component>(&mut self, entity: Entity) -> Option<T> {
         let component_type_id = TypeId::of::<T>();
-        let components = self.map.get_mut(&entity)?;
+        let components = self.entity_map.get_mut(&entity)?;
         let component = components.remove(&component_type_id)?;
+
+        self.component_map
+            .get_mut(&component_type_id)
+            .unwrap()
+            .remove(&entity);
+
         let component = component.loan.await_owned().await;
         let component = *component.downcast::<T>().unwrap_or_else(|_| unreachable!());
         Some(component)
@@ -121,7 +124,7 @@ impl Components {
 
     pub async fn get<T: Component>(&mut self, entity: Entity) -> Option<Ref<T>> {
         let component_type_id = TypeId::of::<T>();
-        let components = self.map.get_mut(&entity)?;
+        let components = self.entity_map.get_mut(&entity)?;
         let component = components.get_mut(&component_type_id)?;
         let inner = component.loan.await_loan().await;
         Some(Ref {
@@ -132,12 +135,32 @@ impl Components {
 
     pub async fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<Mut<T>> {
         let component_type_id = TypeId::of::<T>();
-        let components = self.map.get_mut(&entity)?;
+        let components = self.entity_map.get_mut(&entity)?;
         let component = components.get_mut(&component_type_id)?;
         let inner = component.loan.await_loan_mut().await;
         Some(Mut {
             inner,
             _marker: PhantomData,
         })
+    }
+
+    pub fn has<T: Component>(&self, entity: Entity) -> bool {
+        if let Some(components) = self.entity_map.get(&entity) {
+            components.contains_key(&TypeId::of::<T>())
+        } else {
+            false
+        }
+    }
+
+    pub fn entities_with<T: Component>(&self) -> impl Iterator<Item = Entity> + use<'_, T> {
+        if let Some(entities) = self.component_map.get(&TypeId::of::<T>()) {
+            Either::Left(entities.iter().copied())
+        } else {
+            Either::Right(std::iter::empty())
+        }
+    }
+
+    pub fn entity_iter(&self) -> impl Iterator<Item = Entity> + use<'_> {
+        self.entity_map.keys().copied()
     }
 }

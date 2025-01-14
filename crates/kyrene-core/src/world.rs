@@ -50,6 +50,10 @@ impl World {
         self.entities.alloc()
     }
 
+    pub fn entity_iter(&self) -> impl Iterator<Item = Entity> + use<'_> {
+        self.components.entity_iter()
+    }
+
     pub async fn insert<T: Component>(&mut self, entity: Entity, component: T) -> Option<T> {
         self.components.insert(entity, component).await
     }
@@ -64,6 +68,14 @@ impl World {
 
     pub async fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<Mut<T>> {
         self.components.get_mut(entity).await
+    }
+
+    pub fn has<T: Component>(&self, entity: Entity) -> bool {
+        self.components.has::<T>(entity)
+    }
+
+    pub fn entities_with<T: Component>(&self) -> impl Iterator<Item = Entity> + use<'_, T> {
+        self.components.entities_with::<T>()
     }
 
     pub async fn insert_resource<T: Component>(&mut self, resource: T) -> Option<T> {
@@ -95,6 +107,11 @@ impl World {
         self.events.get_event::<T>()
     }
 
+    pub fn has_event<T: Component>(&self) -> bool {
+        self.events.has_event::<T>()
+    }
+
+    #[track_caller]
     pub fn add_event_handler<T, F, M>(&mut self, handler: F)
     where
         T: DowncastSync,

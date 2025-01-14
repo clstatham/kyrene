@@ -1,10 +1,14 @@
 use std::sync::Arc;
 
+use async_fn_traits::AsyncFnMut1;
+use futures::StreamExt;
+
 use crate::{
     component::{Component, Mut, Ref},
-    entity::Entity,
+    entity::{Entity, EntitySet},
     event::Event,
     lock::RwLock,
+    query::{Query, Queryable},
     world::World,
 };
 
@@ -24,6 +28,10 @@ impl WorldView {
         self.world.write().await.entity()
     }
 
+    pub async fn all_entities(&self) -> EntitySet {
+        self.world.read().await.entity_iter().collect()
+    }
+
     pub async fn insert<T: Component>(&self, entity: Entity, component: T) -> Option<T> {
         self.world.write().await.insert(entity, component).await
     }
@@ -38,6 +46,29 @@ impl WorldView {
 
     pub async fn get_mut<T: Component>(&self, entity: Entity) -> Option<Mut<T>> {
         self.world.write().await.get_mut::<T>(entity).await
+    }
+
+    pub async fn has<T: Component>(&self, entity: Entity) -> bool {
+        self.world.read().await.has::<T>(entity)
+    }
+
+    pub async fn entities_with<T: Component>(&self) -> EntitySet {
+        self.world.read().await.entities_with::<T>().collect()
+    }
+
+    pub async fn query<Q: Queryable>(&self) -> Query<Q> {
+        Query::new(self.clone()).await
+    }
+
+    pub async fn query_iter<Q>(&self, mut f: impl AsyncFnMut1<Q::Item>)
+    where
+        Q: Queryable,
+    {
+        let q = self.query::<Q>().await;
+        let mut iter = Box::pin(q.iter());
+        while let Some(item) = iter.next().await {
+            f(item).await;
+        }
     }
 
     pub async fn insert_resource<T: Component>(&self, resource: T) -> Option<T> {
@@ -66,6 +97,10 @@ impl WorldView {
 
     pub async fn get_event<T: Component>(&self) -> Option<Event<T>> {
         self.world.read().await.get_event::<T>()
+    }
+
+    pub async fn has_event<T: Component>(&self) -> bool {
+        self.world.read().await.has_event::<T>()
     }
 
     pub async fn fire_event<T: Component>(&self, payload: T, await_all_handlers: bool) -> usize {

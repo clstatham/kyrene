@@ -1,8 +1,9 @@
 use kyrene::prelude::*;
 use kyrene_core::world::WorldStartup;
-use kyrene_winit::WindowSettings;
+use kyrene_wgpu::WgpuPlugin;
+use kyrene_winit::{WindowSettings, WinitPlugin};
 
-struct CurrentPlayer(Entity);
+// struct CurrentPlayer(Entity);
 
 #[derive(Debug, Clone)]
 struct FooEvent {
@@ -21,22 +22,36 @@ async fn startup(world: WorldView, _event: Arc<WorldStartup>) {
     world.insert::<i32>(entity, 0).await;
     world.insert::<f32>(entity, 0.0).await;
 
-    world.insert_resource(CurrentPlayer(entity)).await;
+    let entity2 = world.entity().await;
+    world.insert::<i32>(entity2, 1).await;
 
-    info!("Before events");
-    world.fire_event(FooEvent { entity }, true).await;
-    info!("After first");
-    world.fire_event(FooEvent { entity }, true).await;
-    info!("After second");
-    world.fire_event(FooEvent { entity }, true).await;
-    info!("After third");
+    world
+        .query_iter::<&i32>(move |n| async move {
+            println!("{:?}", *n);
+        })
+        .await;
+
+    world
+        .query_iter::<&f32>(move |n| async move {
+            println!("{:?}", *n);
+        })
+        .await;
+
+    world
+        .query_iter::<(&i32, &mut f32)>(move |(a, mut b)| async move {
+            println!("{:?}, {:?}", *a, *b);
+            *b += 1.0;
+            println!("{:?}, {:?}", *a, *b);
+        })
+        .await;
 }
 
 fn main() {
     let mut world = World::new();
+    world.add_plugin(WinitPlugin);
+    world.add_plugin(WgpuPlugin);
 
     world.add_event_handler(startup);
-    // world.add_event_handler(world_tick_handler);
 
     world.add_event::<FooEvent>();
     world.add_event_handler(foo_event_handler);
