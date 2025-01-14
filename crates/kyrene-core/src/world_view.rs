@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use async_fn_traits::AsyncFnMut1;
+use async_fn_traits::AsyncFnMut2;
 use futures::StreamExt;
 
 use crate::{
@@ -60,14 +60,14 @@ impl WorldView {
         Query::new(self.clone()).await
     }
 
-    pub async fn query_iter<Q>(&self, mut f: impl AsyncFnMut1<Q::Item>)
+    pub async fn query_iter<Q>(&self, mut f: impl AsyncFnMut2<Self, Q::Item>)
     where
         Q: Queryable,
     {
         let q = self.query::<Q>().await;
         let mut iter = Box::pin(q.iter());
         while let Some(item) = iter.next().await {
-            f(item).await;
+            f(self.clone(), item).await;
         }
     }
 

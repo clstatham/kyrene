@@ -1,9 +1,9 @@
 use kyrene::prelude::*;
 use kyrene_core::world::WorldStartup;
-use kyrene_wgpu::WgpuPlugin;
-use kyrene_winit::{WindowSettings, WinitPlugin};
-
-// struct CurrentPlayer(Entity);
+use kyrene_graphics::{
+    window::{WindowSettings, WinitPlugin},
+    WgpuPlugin,
+};
 
 #[derive(Debug, Clone)]
 struct FooEvent {
@@ -26,19 +26,19 @@ async fn startup(world: WorldView, _event: Arc<WorldStartup>) {
     world.insert::<i32>(entity2, 1).await;
 
     world
-        .query_iter::<&i32>(move |n| async move {
+        .query_iter::<&i32>(|_world, n| async move {
             println!("{:?}", *n);
         })
         .await;
 
     world
-        .query_iter::<&f32>(move |n| async move {
+        .query_iter::<&f32>(|_world, n| async move {
             println!("{:?}", *n);
         })
         .await;
 
     world
-        .query_iter::<(&i32, &mut f32)>(move |(a, mut b)| async move {
+        .query_iter::<(&i32, &mut f32)>(|_world, (a, mut b)| async move {
             println!("{:?}, {:?}", *a, *b);
             *b += 1.0;
             println!("{:?}, {:?}", *a, *b);
