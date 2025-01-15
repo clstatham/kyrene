@@ -1,5 +1,5 @@
 use kyrene::prelude::*;
-use kyrene_core::world::WorldStartup;
+use kyrene_core::{handler::IntoHandlerConfig, world::WorldStartup};
 use kyrene_graphics::{
     window::{WindowSettings, WinitPlugin},
     WgpuPlugin,
@@ -13,7 +13,11 @@ struct FooEvent {
 async fn foo_event_handler(world: WorldView, event: Arc<FooEvent>) {
     let mut counter = world.get_mut::<i32>(event.entity).await.unwrap();
     *counter += 1;
-    info!("{} -> {}", *counter - 1, *counter);
+    info!("Handler 1: {} -> {}", *counter - 1, *counter);
+}
+
+async fn foo_event_handler_2(_world: WorldView, _event: Arc<FooEvent>) {
+    info!("Handler 2");
 }
 
 async fn startup(world: WorldView, _event: Arc<WorldStartup>) {
@@ -44,6 +48,8 @@ async fn startup(world: WorldView, _event: Arc<WorldStartup>) {
             println!("{:?}, {:?}", *a, *b);
         })
         .await;
+
+    world.fire_event(FooEvent { entity }, true).await;
 }
 
 fn main() {
@@ -55,6 +61,7 @@ fn main() {
 
     world.add_event::<FooEvent>();
     world.add_event_handler(foo_event_handler);
+    world.add_event_handler(foo_event_handler_2.after(foo_event_handler));
 
     world.run_winit(WindowSettings::default());
     // world.run();

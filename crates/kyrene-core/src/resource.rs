@@ -1,10 +1,10 @@
-use std::{any::TypeId, marker::PhantomData};
+use std::marker::PhantomData;
 
 use crate::{
     component::Mut,
     loan::LoanStorage,
     prelude::{Component, Ref},
-    util::TypeIdMap,
+    util::{TypeIdMap, TypeInfo},
 };
 
 #[derive(Default)]
@@ -14,7 +14,7 @@ pub struct Resources {
 
 impl Resources {
     pub async fn insert<T: Component>(&mut self, resource: T) -> Option<T> {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
 
         let old = self
             .map
@@ -26,7 +26,7 @@ impl Resources {
     }
 
     pub async fn remove<T: Component>(&mut self) -> Option<T> {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
 
         let component = self.map.remove(&component_type_id)?;
 
@@ -36,12 +36,12 @@ impl Resources {
     }
 
     pub fn contains<T: Component>(&self) -> bool {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
         self.map.contains_key(&component_type_id)
     }
 
     pub async fn get<T: Component>(&mut self) -> Option<Ref<T>> {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
 
         let component = self.map.get_mut(&component_type_id)?;
         let inner = component.await_loan().await;
@@ -53,7 +53,7 @@ impl Resources {
     }
 
     pub async fn get_mut<T: Component>(&mut self) -> Option<Mut<T>> {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
 
         let component = self.map.get_mut(&component_type_id)?;
         let inner = component.await_loan_mut().await;

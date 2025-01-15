@@ -10,7 +10,7 @@ use itertools::Either;
 use crate::{
     entity::{Entity, EntityMap, EntitySet},
     loan::{Loan, LoanMut, LoanStorage},
-    util::TypeIdMap,
+    util::{TypeIdMap, TypeInfo},
 };
 
 pub trait Component: DowncastSync {}
@@ -75,7 +75,7 @@ pub struct Components {
 
 impl Components {
     pub async fn insert<T: Component>(&mut self, entity: Entity, component: T) -> Option<T> {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
 
         self.component_map
             .entry(component_type_id)
@@ -94,7 +94,7 @@ impl Components {
     }
 
     pub fn insert_discard<T: Component>(&mut self, entity: Entity, component: T) {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
 
         self.entity_map
             .entry(entity)
@@ -108,7 +108,7 @@ impl Components {
     }
 
     pub async fn remove<T: Component>(&mut self, entity: Entity) -> Option<T> {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
         let components = self.entity_map.get_mut(&entity)?;
         let component = components.remove(&component_type_id)?;
 
@@ -123,7 +123,7 @@ impl Components {
     }
 
     pub async fn get<T: Component>(&mut self, entity: Entity) -> Option<Ref<T>> {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
         let components = self.entity_map.get_mut(&entity)?;
         let component = components.get_mut(&component_type_id)?;
         let inner = component.loan.await_loan().await;
@@ -134,7 +134,7 @@ impl Components {
     }
 
     pub async fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<Mut<T>> {
-        let component_type_id = TypeId::of::<T>();
+        let component_type_id = TypeInfo::of::<T>();
         let components = self.entity_map.get_mut(&entity)?;
         let component = components.get_mut(&component_type_id)?;
         let inner = component.loan.await_loan_mut().await;
@@ -146,14 +146,14 @@ impl Components {
 
     pub fn has<T: Component>(&self, entity: Entity) -> bool {
         if let Some(components) = self.entity_map.get(&entity) {
-            components.contains_key(&TypeId::of::<T>())
+            components.contains_key(&TypeInfo::of::<T>())
         } else {
             false
         }
     }
 
     pub fn entities_with<T: Component>(&self) -> impl Iterator<Item = Entity> + use<'_, T> {
-        if let Some(entities) = self.component_map.get(&TypeId::of::<T>()) {
+        if let Some(entities) = self.component_map.get(&TypeInfo::of::<T>()) {
             Either::Left(entities.iter().copied())
         } else {
             Either::Right(std::iter::empty())

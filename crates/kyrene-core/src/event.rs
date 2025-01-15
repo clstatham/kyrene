@@ -1,8 +1,9 @@
-use std::{any::TypeId, marker::PhantomData, sync::Arc};
+use std::{any::TypeId, collections::VecDeque, marker::PhantomData, sync::Arc};
 
 use downcast_rs::DowncastSync;
+use petgraph::prelude::*;
 
-use crate::{handler::DynEventHandlers, prelude::WorldView};
+use crate::{handler::DynEventHandlers, prelude::WorldView, util::FxHashMap};
 
 pub struct Event<T: DowncastSync = ()> {
     event: DynEvent,
@@ -35,10 +36,6 @@ impl<T: DowncastSync> Event<T> {
         }
     }
 
-    pub fn fire_blocking(&self, world: WorldView, tag: T) -> usize {
-        self.event.fire_blocking(world, tag)
-    }
-
     pub async fn fire(&self, world: WorldView, tag: T, await_all_handlers: bool) -> usize {
         self.event.fire(world, tag, await_all_handlers).await
     }
@@ -61,26 +58,9 @@ impl Clone for DynEvent {
 impl DynEvent {
     pub fn new<T: DowncastSync>() -> Self {
         Self {
-            handlers: DynEventHandlers::new(),
+            handlers: DynEventHandlers::new::<T>(),
             type_id: TypeId::of::<T>(),
         }
-    }
-
-    pub fn fire_blocking<T: DowncastSync>(&self, world: WorldView, tag: T) -> usize {
-        assert_eq!(
-            TypeId::of::<T>(),
-            self.type_id,
-            "Event Type ID mismatch; Check if you're sending the right kind of payload!"
-        );
-        let tag: Arc<dyn DowncastSync> = Arc::new(tag);
-
-        let handlers = self.handlers.handlers.blocking_read();
-
-        for handler in handlers.iter() {
-            pollster::block_on(handler.run_dyn(world.clone(), tag.clone()));
-        }
-
-        handlers.len()
     }
 
     pub async fn fire<T: DowncastSync>(
@@ -99,17 +79,52 @@ impl DynEvent {
         let handlers = self.handlers.handlers.read().await;
         let mut join_handles = Vec::new();
 
-        for handler in handlers.iter() {
-            let jh = tokio::spawn(handler.run_dyn(world.clone(), tag.clone()));
-            join_handles.push(jh);
-        }
+        // kahn's algorithm to process as many as possible at a time
 
-        if await_all_handlers {
-            for handle in join_handles {
-                handle.await.unwrap();
+        let mut in_degrees = FxHashMap::default();
+        let mut queue = VecDeque::new();
+
+        for node in handlers.node_indices() {
+            let in_degree = handlers
+                .neighbors_directed(node, Direction::Incoming)
+                .count();
+            in_degrees.insert(node, in_degree);
+
+            if in_degree == 0 {
+                queue.push_back(node);
             }
         }
 
-        handlers.len()
+        while !queue.is_empty() {
+            let mut batch = Vec::new();
+
+            for _ in 0..queue.len() {
+                let node = queue.pop_front().unwrap();
+                batch.push(node);
+
+                for neighbor in handlers.neighbors_directed(node, Direction::Outgoing) {
+                    let in_degree = in_degrees.get_mut(&neighbor).unwrap();
+                    *in_degree -= 1;
+
+                    if *in_degree == 0 {
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+
+            for node in batch {
+                let handler = handlers[node].clone();
+                let jh = tokio::spawn(handler.run_dyn(world.clone(), tag.clone()));
+                join_handles.push(jh);
+            }
+
+            if await_all_handlers {
+                for handle in join_handles.drain(..) {
+                    handle.await.unwrap();
+                }
+            }
+        }
+
+        handlers.node_count()
     }
 }

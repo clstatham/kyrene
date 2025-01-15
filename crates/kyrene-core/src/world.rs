@@ -7,7 +7,7 @@ use crate::{
     component::{Component, Components, Mut, Ref},
     entity::{Entities, Entity},
     event::Event,
-    handler::{EventHandlerFn, Events},
+    handler::{Events, IntoHandlerConfig},
     lock::RwLock,
     plugin::Plugin,
     resource::Resources,
@@ -115,7 +115,7 @@ impl World {
     pub fn add_event_handler<T, F, M>(&mut self, handler: F)
     where
         T: DowncastSync,
-        F: EventHandlerFn<M, Event = T> + 'static,
+        F: IntoHandlerConfig<M, Event = T> + 'static,
         M: 'static,
     {
         self.events.add_handler(handler);

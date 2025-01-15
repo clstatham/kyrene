@@ -1,12 +1,13 @@
-use std::{any::TypeId, future::Future, marker::PhantomData, sync::Arc};
+use std::{future::Future, marker::PhantomData, sync::Arc};
 
 use downcast_rs::DowncastSync;
 use futures::{future::BoxFuture, FutureExt};
+use petgraph::prelude::*;
 
 use crate::{
     event::{DynEvent, Event},
     lock::RwLock,
-    util::TypeIdMap,
+    util::{FxHashSet, TypeIdMap, TypeInfo},
     world_view::WorldView,
 };
 
@@ -84,14 +85,140 @@ where
 
 #[derive(Clone)]
 pub(crate) struct DynEventHandlers {
-    pub handlers: Arc<RwLock<Vec<Arc<dyn EventHandler>>>>,
+    pub event_type_id: TypeInfo,
+    pub handlers: Arc<RwLock<StableDiGraph<Arc<dyn EventHandler>, ()>>>,
+    pub index_cache: Arc<RwLock<TypeIdMap<NodeIndex>>>,
 }
 
 impl DynEventHandlers {
-    pub fn new() -> Self {
+    pub fn new<T: DowncastSync>() -> Self {
         Self {
-            handlers: Arc::new(RwLock::new(Vec::new())),
+            event_type_id: TypeInfo::of::<T>(),
+            handlers: Arc::new(RwLock::new(StableDiGraph::new())),
+            index_cache: Arc::new(RwLock::new(TypeIdMap::default())),
         }
+    }
+
+    pub fn insert<T, F, M>(&self, handler: F) -> NodeIndex
+    where
+        T: DowncastSync,
+        F: IntoHandlerConfig<M, Event = T>,
+        M: 'static,
+    {
+        assert_eq!(TypeInfo::of::<T>(), self.event_type_id);
+        let config = handler.finish();
+        let index = self.handlers.blocking_write().add_node(config.handler);
+        self.index_cache
+            .blocking_write()
+            .insert(config.handler_type_id, index);
+
+        for opt in config.options {
+            let mut handlers = self.handlers.blocking_write();
+            let index_cache = self.index_cache.blocking_read();
+            match opt {
+                HandlerAddOption::After(first) => {
+                    let first = *index_cache.get(&first).unwrap();
+                    handlers.add_edge(first, index, ());
+                }
+                HandlerAddOption::Before(second) => {
+                    let second = *index_cache.get(&second).unwrap();
+                    handlers.add_edge(index, second, ());
+                }
+            }
+        }
+
+        index
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HandlerAddOption {
+    After(TypeInfo),
+    Before(TypeInfo),
+}
+
+pub struct HandlerConfig<T: DowncastSync> {
+    handler_type_id: TypeInfo,
+    handler: Arc<dyn EventHandler>,
+    options: FxHashSet<HandlerAddOption>,
+    _marker: PhantomData<T>,
+}
+
+impl<T: DowncastSync> HandlerConfig<T> {
+    pub fn new<F, M>(handler: F) -> Self
+    where
+        F: EventHandlerFn<M, Event = T>,
+        M: 'static,
+    {
+        Self {
+            handler_type_id: TypeInfo::of::<F>(),
+            handler: handler.into_event_handler(),
+            options: FxHashSet::default(),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn after<F2, M2>(mut self, _handler: F2) -> Self
+    where
+        F2: EventHandlerFn<M2, Event = T>,
+        M2: 'static,
+    {
+        self.options
+            .insert(HandlerAddOption::After(TypeInfo::of::<F2>()));
+        self
+    }
+
+    pub fn before<F2, M2>(mut self, _handler: F2) -> Self
+    where
+        F2: EventHandlerFn<M2, Event = T>,
+        M2: 'static,
+    {
+        self.options
+            .insert(HandlerAddOption::Before(TypeInfo::of::<F2>()));
+        self
+    }
+}
+
+pub trait IntoHandlerConfig<M>: Sized + 'static {
+    type Event: DowncastSync;
+
+    fn finish(self) -> HandlerConfig<Self::Event>;
+
+    fn after<F2, M2>(self, handler: F2) -> HandlerConfig<Self::Event>
+    where
+        F2: EventHandlerFn<M2, Event = Self::Event>,
+        M2: 'static,
+    {
+        self.finish().after(handler)
+    }
+
+    fn before<F2, M2>(self, handler: F2) -> HandlerConfig<Self::Event>
+    where
+        F2: EventHandlerFn<M2, Event = Self::Event>,
+        M2: 'static,
+    {
+        self.finish().before(handler)
+    }
+}
+
+impl<T, F, M> IntoHandlerConfig<M> for F
+where
+    T: DowncastSync,
+    F: EventHandlerFn<M, Event = T>,
+    M: 'static,
+{
+    type Event = T;
+
+    fn finish(self) -> HandlerConfig<T> {
+        HandlerConfig::new(self)
+    }
+}
+
+impl<T: DowncastSync> IntoHandlerConfig<()> for HandlerConfig<T> {
+    type Event = T;
+
+    fn finish(self) -> HandlerConfig<Self::Event> {
+        self
     }
 }
 
@@ -106,32 +233,26 @@ impl Events {
             return event;
         }
         let event = DynEvent::new::<T>();
-        self.entries.insert(TypeId::of::<T>(), event.clone());
+        self.entries.insert_for::<T>(event.clone());
         Event::from_dyn_event(event)
     }
 
     pub fn get_event<T: DowncastSync>(&self) -> Option<Event<T>> {
-        let event = self.entries.get(&TypeId::of::<T>())?.clone();
+        let event = self.entries.get_for::<T>()?.clone();
         Some(Event::from_dyn_event(event))
     }
 
     pub fn has_event<T: DowncastSync>(&self) -> bool {
-        self.entries.contains_key(&TypeId::of::<T>())
+        self.entries.contains_type::<T>()
     }
 
-    #[track_caller]
     pub fn add_handler<T, F, M>(&mut self, handler: F)
     where
         T: DowncastSync,
-        F: EventHandlerFn<M, Event = T>,
+        F: IntoHandlerConfig<M, Event = T>,
         M: 'static,
     {
-        let handler: Arc<dyn EventHandler> = handler.into_event_handler();
-        let event = self
-            .entries
-            .entry(TypeId::of::<T>())
-            .or_insert_with(|| DynEvent::new::<T>())
-            .clone();
-        event.handlers.handlers.blocking_write().push(handler);
+        let mut event = self.entries.get_for::<T>().unwrap().clone();
+        event.handlers.insert(handler);
     }
 }

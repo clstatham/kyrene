@@ -191,8 +191,11 @@ impl Plugin for WgpuPlugin {
         world.add_event_handler(create_surface);
         world.add_event_handler(redraw_requested);
         world.add_event_handler(pre_render);
+
+        world.add_event::<BeginRender>();
         world.add_event_handler(begin_render);
 
+        world.add_event::<InsertViewTarget>();
         world.add_event_handler(insert_view_target);
     }
 }
