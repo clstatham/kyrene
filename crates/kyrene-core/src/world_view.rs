@@ -91,6 +91,14 @@ impl WorldView {
         self.world.write().await.get_resource_mut::<T>().await
     }
 
+    pub async fn await_resource<T: Component>(&self) -> Ref<T> {
+        self.world.write().await.await_resource::<T>().await
+    }
+
+    pub async fn await_resource_mut<T: Component>(&self) -> Mut<T> {
+        self.world.write().await.await_resource_mut::<T>().await
+    }
+
     pub async fn add_event<T: Component>(&self) -> Event<T> {
         self.world.write().await.add_event::<T>()
     }

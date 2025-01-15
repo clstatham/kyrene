@@ -1,5 +1,5 @@
 use kyrene::prelude::*;
-use kyrene_core::{handler::IntoHandlerConfig, world::WorldStartup};
+use kyrene_core::world::WorldStartup;
 use kyrene_graphics::{
     window::{WindowSettings, WinitPlugin},
     WgpuPlugin,
@@ -59,10 +59,9 @@ fn main() {
 
     world.add_event_handler(startup);
 
-    world.add_event::<FooEvent>();
     world.add_event_handler(foo_event_handler);
     world.add_event_handler(foo_event_handler_2.after(foo_event_handler));
 
-    world.run_winit(WindowSettings::default());
+    world.run_window(WindowSettings::default());
     // world.run();
 }

@@ -63,4 +63,44 @@ impl Resources {
             _marker: PhantomData,
         })
     }
+
+    pub async fn wait_for<T: Component>(&mut self) -> Ref<T> {
+        let mut start = tokio::time::Instant::now();
+
+        loop {
+            if let Some(res) = self.get::<T>().await {
+                return res;
+            }
+
+            tokio::task::yield_now().await;
+
+            if start.elapsed() >= tokio::time::Duration::from_secs(5) {
+                tracing::warn!(
+                    "Waiting a long time for resource ref {}...",
+                    std::any::type_name::<T>()
+                );
+                start = tokio::time::Instant::now();
+            }
+        }
+    }
+
+    pub async fn wait_for_mut<T: Component>(&mut self) -> Mut<T> {
+        let mut start = tokio::time::Instant::now();
+
+        loop {
+            if let Some(res) = self.get_mut::<T>().await {
+                return res;
+            }
+
+            tokio::task::yield_now().await;
+
+            if start.elapsed() >= tokio::time::Duration::from_secs(5) {
+                tracing::warn!(
+                    "Waiting a long time for resource mut {}...",
+                    std::any::type_name::<T>()
+                );
+                start = tokio::time::Instant::now();
+            }
+        }
+    }
 }

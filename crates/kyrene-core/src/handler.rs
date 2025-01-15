@@ -252,7 +252,7 @@ impl Events {
         F: IntoHandlerConfig<M, Event = T>,
         M: 'static,
     {
-        let mut event = self.entries.get_for::<T>().unwrap().clone();
-        event.handlers.insert(handler);
+        let event = self.add_event::<T>();
+        event.add_handler(handler);
     }
 }

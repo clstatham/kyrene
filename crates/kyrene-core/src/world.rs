@@ -98,6 +98,14 @@ impl World {
         self.resources.get_mut::<T>().await
     }
 
+    pub async fn await_resource<T: Component>(&mut self) -> Ref<T> {
+        self.resources.wait_for::<T>().await
+    }
+
+    pub async fn await_resource_mut<T: Component>(&mut self) -> Mut<T> {
+        self.resources.wait_for_mut::<T>().await
+    }
+
     #[track_caller]
     pub fn add_event<T: Component>(&mut self) -> Event<T> {
         self.events.add_event::<T>()

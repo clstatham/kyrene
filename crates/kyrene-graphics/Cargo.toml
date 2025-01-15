@@ -12,3 +12,4 @@ encase = { version = "0.10", features = ["glam"] }
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 console-subscriber = "0.4.1"
+image = "0.25.5"

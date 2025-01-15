@@ -1,13 +1,77 @@
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
+use bind_group::BindGroupLayouts;
 use camera::{insert_view_target, GpuCamera, InsertViewTarget, ViewTarget};
+use hdr::HdrPlugin;
 use kyrene_core::{entity::Entity, plugin::Plugin, prelude::WorldView, world::World};
+use pipeline::RenderPipelines;
 use texture::texture_format::{DEPTH_FORMAT, VIEW_FORMAT};
 use window::{RedrawRequested, WindowCreated};
 
+pub mod bind_group;
 pub mod camera;
+pub mod hdr;
+pub mod pipeline;
 pub mod texture;
 pub mod window;
+
+#[macro_export]
+macro_rules! wrap_wgpu {
+    ($t:ident < $mark:ident : $tr:ident >) => {
+        pub struct $t<$mark: $tr>(
+            ::std::sync::Arc<wgpu::$t>,
+            ::std::marker::PhantomData<$mark>,
+        );
+
+        impl<$mark: $tr> $t<$mark> {
+            pub fn new(inner: wgpu::$t) -> Self {
+                Self(::std::sync::Arc::new(inner), ::std::marker::PhantomData)
+            }
+        }
+
+        impl<$mark: $tr> Clone for $t<$mark> {
+            fn clone(&self) -> Self {
+                Self(self.0.clone(), self.1)
+            }
+        }
+
+        impl<$mark: $tr> ::std::ops::Deref for $t<$mark> {
+            type Target = wgpu::$t;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+    };
+
+    ($t:ident) => {
+        #[derive(Clone)]
+        pub struct $t(::std::sync::Arc<wgpu::$t>);
+
+        impl $t {
+            pub fn new(inner: wgpu::$t) -> Self {
+                Self(::std::sync::Arc::new(inner))
+            }
+        }
+
+        impl ::std::ops::Deref for $t {
+            type Target = wgpu::$t;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl From<wgpu::$t> for $t {
+            fn from(inner: wgpu::$t) -> Self {
+                Self::new(inner)
+            }
+        }
+    };
+}
 
 pub struct InitRenderResources;
 pub struct PreRender;
@@ -37,29 +101,8 @@ impl Deref for DepthTexture {
     }
 }
 
-pub struct WgpuDevice {
-    pub device: wgpu::Device,
-}
-
-impl Deref for WgpuDevice {
-    type Target = wgpu::Device;
-
-    fn deref(&self) -> &Self::Target {
-        &self.device
-    }
-}
-
-pub struct WgpuQueue {
-    pub queue: wgpu::Queue,
-}
-
-impl Deref for WgpuQueue {
-    type Target = wgpu::Queue;
-
-    fn deref(&self) -> &Self::Target {
-        &self.queue
-    }
-}
+wrap_wgpu!(Device);
+wrap_wgpu!(Queue);
 
 pub struct WindowSurface {
     pub surface: Arc<wgpu::Surface<'static>>,
@@ -85,6 +128,12 @@ impl Deref for ActiveCommandEncoder {
     }
 }
 
+impl DerefMut for ActiveCommandEncoder {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.encoder
+    }
+}
+
 impl ActiveCommandEncoder {
     pub fn finish(self) -> wgpu::CommandBuffer {
         self.encoder.finish()
@@ -106,41 +155,22 @@ impl CommandBuffers {
 }
 
 async fn create_surface(world: WorldView, event: Arc<WindowCreated>) {
-    if world.has_resource::<WindowSurface>().await {
-        return;
-    }
-
     let WindowCreated {
         window,
         surface,
         adapter,
+        device,
+        queue,
     } = &*event;
 
     let window = window.clone();
     let surface = surface.clone();
     let adapter = adapter.clone();
 
-    let mut required_limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
-    required_limits.max_push_constant_size = 256;
-
-    let (device, queue) = kyrene_core::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            required_features: wgpu::Features::MULTIVIEW
-                | wgpu::Features::PUSH_CONSTANTS
-                | wgpu::Features::TEXTURE_BINDING_ARRAY
-                | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
-            required_limits,
-            label: None,
-            memory_hints: wgpu::MemoryHints::Performance,
-        },
-        None,
-    ))
-    .unwrap();
-
     let caps = surface.get_capabilities(&adapter);
 
     surface.configure(
-        &device,
+        device,
         &wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
             format: VIEW_FORMAT,
@@ -167,9 +197,8 @@ async fn create_surface(world: WorldView, event: Arc<WindowCreated>) {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     }));
-
-    world.insert_resource(WgpuDevice { device }).await;
-    world.insert_resource(WgpuQueue { queue }).await;
+    world.insert_resource(device.clone()).await;
+    world.insert_resource(queue.clone()).await;
     world.insert_resource(WindowSurface { surface }).await;
     world.insert_resource(DepthTexture { depth_texture }).await;
     world
@@ -191,18 +220,24 @@ impl Plugin for WgpuPlugin {
         world.add_event_handler(create_surface);
         world.add_event_handler(redraw_requested);
         world.add_event_handler(pre_render);
-
-        world.add_event::<BeginRender>();
         world.add_event_handler(begin_render);
-
-        world.add_event::<InsertViewTarget>();
         world.add_event_handler(insert_view_target);
+        world.add_event_handler(end_render);
+        world.add_event_handler(post_render);
+
+        world.add_plugin(HdrPlugin);
+        world.insert_resource(CurrentFrame::default()).await;
+        world.insert_resource(BindGroupLayouts::default()).await;
+        world.insert_resource(RenderPipelines::default()).await;
     }
 }
 
 pub struct BeginRender;
 
 async fn redraw_requested(world: WorldView, _event: Arc<RedrawRequested>) {
+    if !world.has_resource::<Device>().await {
+        return;
+    }
     world.fire_event(InitRenderResources, true).await;
     world.fire_event(PreRender, true).await;
     world.fire_event(Render, true).await;
@@ -218,10 +253,12 @@ pub async fn pre_render(world: WorldView, _event: Arc<PreRender>) {
         .await;
 }
 
+pub async fn post_render(world: WorldView, _event: Arc<PostRender>) {
+    world.fire_event(EndRender, true).await;
+}
+
 pub async fn begin_render(world: WorldView, _event: Arc<BeginRender>) {
-    let Some(mut current_frame) = world.get_resource_mut::<CurrentFrame>().await else {
-        return;
-    };
+    let mut current_frame = world.get_resource_mut::<CurrentFrame>().await.unwrap();
     if current_frame.inner.is_some() {
         return;
     }
@@ -231,7 +268,9 @@ pub async fn begin_render(world: WorldView, _event: Arc<BeginRender>) {
         world.remove::<ViewTarget>(entity).await;
     }
 
-    let surface = world.get_resource::<WindowSurface>().await.unwrap();
+    let Some(surface) = world.get_resource::<WindowSurface>().await else {
+        return;
+    };
     let frame = match surface.get_current_texture() {
         Ok(frame) => frame,
         Err(e) => {
@@ -251,7 +290,7 @@ pub async fn begin_render(world: WorldView, _event: Arc<BeginRender>) {
         ..Default::default()
     });
 
-    let device = world.get_resource::<WgpuDevice>().await.unwrap();
+    let device = world.get_resource::<Device>().await.unwrap();
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Render Initial Encoder"),
@@ -294,4 +333,33 @@ pub async fn begin_render(world: WorldView, _event: Arc<BeginRender>) {
     world
         .insert_resource(ActiveCommandEncoder { encoder })
         .await;
+}
+
+pub struct EndRender;
+
+pub async fn end_render(world: WorldView, _event: Arc<EndRender>) {
+    let mut current_frame = world.get_resource_mut::<CurrentFrame>().await.unwrap();
+    let Some(current_frame) = current_frame.inner.take() else {
+        return;
+    };
+
+    let CurrentFrameInner {
+        surface_texture, ..
+    } = current_frame;
+
+    let mut command_buffers = world.get_resource_mut::<CommandBuffers>().await.unwrap();
+
+    if let Some(encoder) = world.remove_resource::<ActiveCommandEncoder>().await {
+        command_buffers.enqueue(encoder.finish());
+    }
+
+    let command_buffers: Vec<wgpu::CommandBuffer> =
+        std::mem::take(&mut command_buffers.command_buffers);
+
+    let queue = world.get_resource::<Queue>().await.unwrap();
+
+    queue.submit(command_buffers);
+
+    let surface_texture = Arc::into_inner(surface_texture).unwrap();
+    surface_texture.present();
 }

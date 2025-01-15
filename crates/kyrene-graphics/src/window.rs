@@ -8,10 +8,12 @@ use kyrene_core::{
     },
     world::{WorldShutdown, WorldStartup, WorldTick},
 };
-use tracing::level_filters::LevelFilter;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 use winit::{
     dpi::LogicalSize, event::WindowEvent, event_loop::ControlFlow, window::WindowAttributes,
 };
+
+use crate::{Device, Queue};
 
 #[derive(Clone)]
 pub struct Window(Arc<winit::window::Window>);
@@ -58,12 +60,12 @@ pub struct WindowResized {
     pub new_height: u32,
 }
 
-pub trait RunWinit {
-    fn run_winit(self, window_settings: WindowSettings);
+pub trait RunWindow {
+    fn run_window(self, window_settings: WindowSettings);
 }
 
-impl RunWinit for World {
-    fn run_winit(self, window_settings: WindowSettings) {
+impl RunWindow for World {
+    fn run_window(self, window_settings: WindowSettings) {
         let event_loop = winit::event_loop::EventLoop::new().unwrap();
 
         let view = self.into_world_view();
@@ -72,13 +74,17 @@ impl RunWinit for World {
 
         std::thread::spawn({
             let view = view.clone();
+            let window_settings = window_settings.clone();
             move || {
-                tracing::subscriber::set_global_default(
-                    tracing_subscriber::FmtSubscriber::builder()
-                        .with_max_level(LevelFilter::DEBUG)
-                        .finish(),
-                )
-                .unwrap();
+                let sub = console_subscriber::ConsoleLayer::builder()
+                    .with_default_env()
+                    .spawn();
+                tracing_subscriber::registry()
+                    .with(sub)
+                    .with(
+                        tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()),
+                    )
+                    .init();
 
                 let runtime = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
@@ -87,6 +93,8 @@ impl RunWinit for World {
 
                 runtime.block_on(async move {
                     view.fire_event(WorldStartup, true).await;
+
+                    view.insert_resource(window_settings).await;
 
                     // spawn WorldTick task
                     let mut tick = 0;
@@ -110,7 +118,9 @@ impl RunWinit for World {
                         let view = view.clone();
                         async move {
                             loop {
-                                let window_created = window_created.recv().await.unwrap();
+                                let Some(window_created) = window_created.recv().await else {
+                                    return;
+                                };
                                 view.fire_event(window_created, true).await;
                             }
                         }
@@ -120,7 +130,9 @@ impl RunWinit for World {
                         let view = view.clone();
                         async move {
                             loop {
-                                let winit_event = winit_event.recv().await.unwrap();
+                                let Some(winit_event) = winit_event.recv().await else {
+                                    return;
+                                };
                                 view.fire_event(winit_event, true).await;
                             }
                         }
@@ -130,7 +142,9 @@ impl RunWinit for World {
                         let view = view.clone();
                         async move {
                             loop {
-                                exiting.recv().await.unwrap();
+                                let Some(()) = exiting.recv().await else {
+                                    return;
+                                };
                                 view.fire_event(WorldShutdown, true).await;
                             }
                         }
@@ -162,6 +176,8 @@ impl Plugin for WinitPlugin {
         world.add_event::<WindowResized>();
         world.add_event::<WorldShutdown>();
         world.add_event::<RedrawRequested>();
+
+        world.add_event_handler(winit_event);
     }
 }
 
@@ -196,6 +212,8 @@ pub struct WindowCreated {
     pub window: Window,
     pub surface: Arc<wgpu::Surface<'static>>,
     pub adapter: Arc<wgpu::Adapter>,
+    pub device: Device,
+    pub queue: Queue,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -272,12 +290,32 @@ impl winit::application::ApplicationHandler for WinitApp {
             }))
             .unwrap();
 
+        let mut required_limits =
+            wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
+        required_limits.max_push_constant_size = 256;
+
+        let (device, queue) = kyrene_core::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::MULTIVIEW
+                    | wgpu::Features::PUSH_CONSTANTS
+                    | wgpu::Features::TEXTURE_BINDING_ARRAY
+                    | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
+                required_limits,
+                label: None,
+                memory_hints: wgpu::MemoryHints::Performance,
+            },
+            None,
+        ))
+        .unwrap();
+
         self.events
             .window_created
             .blocking_send(WindowCreated {
                 window,
                 surface: Arc::new(surface),
                 adapter: Arc::new(adapter),
+                device: Device::new(device),
+                queue: Queue::new(queue),
             })
             .unwrap();
     }

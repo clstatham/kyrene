@@ -154,6 +154,8 @@ impl<T: Component> LoanStorage<T> {
     }
 
     pub async fn await_owned(mut self) -> T {
+        let mut start = tokio::time::Instant::now();
+
         loop {
             match self.into_owned().await {
                 Ok(t) => return t,
@@ -161,26 +163,54 @@ impl<T: Component> LoanStorage<T> {
             }
 
             tokio::task::yield_now().await;
+
+            if start.elapsed() >= tokio::time::Duration::from_secs(5) {
+                tracing::warn!(
+                    "Waiting a long time to own {}...",
+                    std::any::type_name::<T>()
+                );
+                start = tokio::time::Instant::now();
+            }
         }
     }
 
     pub async fn await_loan(&mut self) -> Loan<T> {
+        let mut start = tokio::time::Instant::now();
+
         loop {
             if let Some(loan) = self.loan().await {
                 return loan;
             }
 
             tokio::task::yield_now().await;
+
+            if start.elapsed() >= tokio::time::Duration::from_secs(5) {
+                tracing::warn!(
+                    "Waiting a long time to loan {}...",
+                    std::any::type_name::<T>()
+                );
+                start = tokio::time::Instant::now();
+            }
         }
     }
 
     pub async fn await_loan_mut(&mut self) -> LoanMut<T> {
+        let mut start = tokio::time::Instant::now();
+
         loop {
             if let Some(loan) = self.loan_mut().await {
                 return loan;
             }
 
             tokio::task::yield_now().await;
+
+            if start.elapsed() >= tokio::time::Duration::from_secs(5) {
+                tracing::warn!(
+                    "Waiting a long time to loan mut {}...",
+                    std::any::type_name::<T>()
+                );
+                start = tokio::time::Instant::now();
+            }
         }
     }
 }

@@ -3,7 +3,11 @@ use std::{any::TypeId, collections::VecDeque, marker::PhantomData, sync::Arc};
 use downcast_rs::DowncastSync;
 use petgraph::prelude::*;
 
-use crate::{handler::DynEventHandlers, prelude::WorldView, util::FxHashMap};
+use crate::{
+    handler::{DynEventHandlers, IntoHandlerConfig},
+    prelude::WorldView,
+    util::FxHashMap,
+};
 
 pub struct Event<T: DowncastSync = ()> {
     event: DynEvent,
@@ -36,6 +40,14 @@ impl<T: DowncastSync> Event<T> {
         }
     }
 
+    pub fn add_handler<F, M>(&self, handler: F)
+    where
+        F: IntoHandlerConfig<M, Event = T>,
+        M: 'static,
+    {
+        self.event.add_handler(handler);
+    }
+
     pub async fn fire(&self, world: WorldView, tag: T, await_all_handlers: bool) -> usize {
         self.event.fire(world, tag, await_all_handlers).await
     }
@@ -61,6 +73,16 @@ impl DynEvent {
             handlers: DynEventHandlers::new::<T>(),
             type_id: TypeId::of::<T>(),
         }
+    }
+
+    pub fn add_handler<T, F, M>(&self, handler: F)
+    where
+        T: DowncastSync,
+        F: IntoHandlerConfig<M, Event = T>,
+        M: 'static,
+    {
+        assert_eq!(TypeId::of::<T>(), self.type_id);
+        self.handlers.insert(handler);
     }
 
     pub async fn fire<T: DowncastSync>(

@@ -12,6 +12,7 @@ pub mod lock;
 pub mod plugin;
 pub mod query;
 pub mod resource;
+#[macro_use]
 pub mod util;
 pub mod world;
 pub mod world_view;
@@ -25,6 +26,7 @@ pub mod prelude {
         component::{Component, Ref},
         entity::Entity,
         event::Event,
+        handler::IntoHandlerConfig,
         lock::{MappedMutexGuard, Mutex, MutexGuard},
         plugin::Plugin,
         util::{FxHashMap, FxHashSet, TypeIdMap, TypeIdSet},
