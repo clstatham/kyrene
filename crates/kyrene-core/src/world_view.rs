@@ -4,6 +4,7 @@ use async_fn_traits::AsyncFnMut2;
 use futures::StreamExt;
 
 use crate::{
+    bundle::Bundle,
     component::{Component, Mut, Ref},
     entity::{Entity, EntitySet},
     event::Event,
@@ -34,6 +35,14 @@ impl WorldView {
 
     pub async fn insert<T: Component>(&self, entity: Entity, component: T) -> Option<T> {
         self.world.write().await.insert(entity, component).await
+    }
+
+    pub async fn insert_bundle<T: Bundle>(&self, entity: Entity, bundle: T) {
+        self.world.write().await.insert_bundle(entity, bundle);
+    }
+
+    pub async fn spawn<T: Bundle>(&self, bundle: T) -> Entity {
+        self.world.write().await.spawn(bundle)
     }
 
     pub async fn remove<T: Component>(&self, entity: Entity) -> Option<T> {

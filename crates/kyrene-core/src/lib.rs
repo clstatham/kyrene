@@ -14,6 +14,7 @@ pub mod query;
 pub mod resource;
 #[macro_use]
 pub mod util;
+pub mod bundle;
 pub mod world;
 pub mod world_view;
 

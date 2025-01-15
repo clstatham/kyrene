@@ -8,6 +8,7 @@ use downcast_rs::{impl_downcast, DowncastSync};
 use itertools::Either;
 
 use crate::{
+    bundle::Bundle,
     entity::{Entity, EntityMap, EntitySet},
     loan::{Loan, LoanMut, LoanStorage},
     util::{TypeIdMap, TypeInfo},
@@ -105,6 +106,23 @@ impl Components {
             .entry(component_type_id)
             .or_default()
             .insert(entity);
+    }
+
+    pub fn insert_bundle<T: Bundle>(&mut self, entity: Entity, bundle: T) {
+        for (component_type_id, component) in bundle.into_dyn_components() {
+            self.entity_map.entry(entity).or_default().insert(
+                component_type_id,
+                ComponentEntry {
+                    loan: LoanStorage::new(component),
+                    type_id: component_type_id.type_id,
+                },
+            );
+
+            self.component_map
+                .entry(component_type_id)
+                .or_default()
+                .insert(entity);
+        }
     }
 
     pub async fn remove<T: Component>(&mut self, entity: Entity) -> Option<T> {

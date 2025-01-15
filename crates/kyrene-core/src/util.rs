@@ -7,8 +7,8 @@ use std::{
 
 #[derive(Clone, Copy)]
 pub struct TypeInfo {
-    type_id: TypeId,
-    type_name: &'static str,
+    pub type_id: TypeId,
+    pub type_name: &'static str,
 }
 
 impl TypeInfo {

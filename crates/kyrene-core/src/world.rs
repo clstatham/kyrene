@@ -4,6 +4,7 @@ use downcast_rs::DowncastSync;
 use tracing::level_filters::LevelFilter;
 
 use crate::{
+    bundle::Bundle,
     component::{Component, Components, Mut, Ref},
     entity::{Entities, Entity},
     event::Event,
@@ -56,6 +57,16 @@ impl World {
 
     pub async fn insert<T: Component>(&mut self, entity: Entity, component: T) -> Option<T> {
         self.components.insert(entity, component).await
+    }
+
+    pub fn insert_bundle<T: Bundle>(&mut self, entity: Entity, bundle: T) {
+        self.components.insert_bundle(entity, bundle);
+    }
+
+    pub fn spawn<T: Bundle>(&mut self, bundle: T) -> Entity {
+        let entity = self.entity();
+        self.insert_bundle(entity, bundle);
+        entity
     }
 
     pub async fn remove<T: Component>(&mut self, entity: Entity) -> Option<T> {

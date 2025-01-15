@@ -92,9 +92,9 @@ impl RunWindow for World {
                     .unwrap();
 
                 runtime.block_on(async move {
-                    view.fire_event(WorldStartup, true).await;
-
                     view.insert_resource(window_settings).await;
+
+                    view.fire_event(WorldStartup, true).await;
 
                     // spawn WorldTick task
                     let mut tick = 0;
