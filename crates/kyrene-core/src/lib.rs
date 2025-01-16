@@ -23,6 +23,8 @@ pub extern crate tokio;
 #[doc(hidden)]
 pub extern crate self as kyrene_core;
 
+pub use kyrene_macro::Bundle;
+
 pub mod prelude {
     pub use crate::{
         block_on,
@@ -37,6 +39,7 @@ pub mod prelude {
         world_handle::WorldHandle,
     };
     pub use futures::StreamExt;
+    pub use kyrene_macro::Bundle;
     pub use std::sync::Arc;
     pub use tokio;
     pub use tracing::{debug, error, info, trace, warn};
