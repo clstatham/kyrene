@@ -285,7 +285,7 @@ impl winit::application::ApplicationHandler for WinitApp {
         let window = Window(Arc::new(window));
         self.window = Some(window.clone());
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });

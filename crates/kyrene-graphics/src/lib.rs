@@ -27,14 +27,15 @@ pub mod window;
 #[macro_export]
 macro_rules! wrap_wgpu {
     ($t:ident < $mark:ident : $tr:ident >) => {
-        pub struct $t<$mark: $tr>(
-            ::std::sync::Arc<wgpu::$t>,
-            ::std::marker::PhantomData<$mark>,
-        );
+        pub struct $t<$mark: $tr>(wgpu::$t, ::std::marker::PhantomData<$mark>);
 
         impl<$mark: $tr> $t<$mark> {
             pub fn new(inner: wgpu::$t) -> Self {
-                Self(::std::sync::Arc::new(inner), ::std::marker::PhantomData)
+                Self(inner, ::std::marker::PhantomData)
+            }
+
+            pub fn into_inner(this: Self) -> wgpu::$t {
+                this.0
             }
         }
 
@@ -55,11 +56,15 @@ macro_rules! wrap_wgpu {
 
     ($t:ident) => {
         #[derive(Clone)]
-        pub struct $t(::std::sync::Arc<wgpu::$t>);
+        pub struct $t(wgpu::$t);
 
         impl $t {
             pub fn new(inner: wgpu::$t) -> Self {
-                Self(::std::sync::Arc::new(inner))
+                Self(inner)
+            }
+
+            pub fn into_inner(this: Self) -> wgpu::$t {
+                this.0
             }
         }
 
