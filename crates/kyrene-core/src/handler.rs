@@ -1,24 +1,105 @@
-use std::{future::Future, marker::PhantomData, sync::Arc};
+use std::{
+    future::Future,
+    marker::PhantomData,
+    ops::{Add, Deref, DerefMut},
+    sync::Arc,
+};
 
 use downcast_rs::DowncastSync;
 use futures::{future::BoxFuture, FutureExt};
 use petgraph::prelude::*;
 
 use crate::{
+    component::Mut,
     event::{DynEvent, Event},
     lock::RwLock,
-    util::{FxHashSet, TypeIdMap, TypeInfo},
+    prelude::{Component, Ref},
+    util::{FxHashSet, TypeIdMap, TypeIdSet, TypeInfo},
     world_view::WorldView,
 };
 
+#[derive(Default, Debug, Clone)]
+pub struct EventHandlerMeta {
+    pub resources_read: TypeIdSet,
+    pub resources_written: TypeIdSet,
+}
+
+impl EventHandlerMeta {
+    pub fn res<T: Component>(mut self) -> Self {
+        self.resources_read.insert(TypeInfo::of::<T>());
+        self
+    }
+
+    pub fn res_mut<T: Component>(mut self) -> Self {
+        self.resources_written.insert(TypeInfo::of::<T>());
+        self
+    }
+
+    pub fn required_resources(&self) -> impl Iterator<Item = TypeInfo> + use<'_> {
+        self.resources_read
+            .iter()
+            .copied()
+            .chain(self.resources_written.iter().copied())
+    }
+
+    pub fn is_compatible(&self, other: &Self) -> bool {
+        let mut conflicts = 0;
+
+        conflicts += self
+            .resources_read
+            .intersection(&other.resources_written)
+            .count();
+
+        conflicts += self
+            .resources_written
+            .intersection(&other.resources_read)
+            .count();
+
+        conflicts += self
+            .resources_written
+            .intersection(&other.resources_written)
+            .count();
+
+        conflicts == 0
+    }
+
+    pub async fn can_run(&self, world: &WorldView) -> bool {
+        let mut can = true;
+        for res in self.required_resources() {
+            can &= world.has_resource_dyn(res).await;
+        }
+        can
+    }
+}
+
+impl Add<Self> for EventHandlerMeta {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let mut out = self.clone();
+        out.resources_read.extend(rhs.resources_read);
+        out.resources_written.extend(rhs.resources_written);
+        out
+    }
+}
+
 pub(crate) trait EventHandler: Send + Sync {
+    fn meta(&self) -> EventHandlerMeta {
+        EventHandlerMeta::default()
+    }
     fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()>;
 }
 
 pub trait EventHandlerFn<M>: Send + Sync + 'static {
     type Event: DowncastSync;
+    type Param: HandlerParam + 'static;
 
-    fn run(&self, world: WorldView, event: Arc<Self::Event>) -> BoxFuture<'static, ()>;
+    fn run(
+        &self,
+        world: WorldView,
+        event: Arc<Self::Event>,
+        param: HandlerParamItem<Self::Param>,
+    ) -> BoxFuture<'static, ()>;
 }
 
 pub(crate) trait IntoEventHandler<M>: Send + Sync {
@@ -26,6 +107,172 @@ pub(crate) trait IntoEventHandler<M>: Send + Sync {
 
     fn into_event_handler(self) -> Arc<Self::EventHandler>;
 }
+
+#[allow(unused)]
+pub trait HandlerParam: Send + Sync {
+    type Item: HandlerParam;
+
+    fn meta() -> EventHandlerMeta;
+
+    fn fetch(world: WorldView) -> impl Future<Output = Self::Item> + Send;
+
+    fn can_run(world: WorldView) -> impl Future<Output = bool> + Send {
+        async move { true }
+    }
+}
+
+pub type HandlerParamItem<T> = <T as HandlerParam>::Item;
+
+impl HandlerParam for () {
+    type Item = ();
+
+    fn meta() -> EventHandlerMeta {
+        EventHandlerMeta::default()
+    }
+
+    async fn fetch(_world: WorldView) -> Self::Item {}
+
+    async fn can_run(_world: WorldView) -> bool {
+        true
+    }
+}
+
+#[derive(Debug)]
+pub struct Res<T: Component>(Ref<T>);
+
+impl<T: Component> Deref for Res<T> {
+    type Target = Ref<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Component> HandlerParam for Res<T> {
+    type Item = Res<T>;
+
+    fn meta() -> EventHandlerMeta {
+        EventHandlerMeta::default().res::<T>()
+    }
+
+    async fn fetch(world: WorldView) -> Self::Item {
+        Res(world.get_resource::<T>().await.unwrap())
+    }
+
+    async fn can_run(world: WorldView) -> bool {
+        world.has_resource::<T>().await
+    }
+}
+
+impl<T: Component> HandlerParam for Option<Res<T>> {
+    type Item = Option<Res<T>>;
+
+    fn meta() -> EventHandlerMeta {
+        EventHandlerMeta::default().res::<T>()
+    }
+
+    async fn fetch(world: WorldView) -> Self::Item {
+        Some(Res(world.get_resource::<T>().await?))
+    }
+
+    async fn can_run(_world: WorldView) -> bool {
+        true
+    }
+}
+
+#[derive(Debug)]
+pub struct ResMut<T: Component>(Mut<T>);
+
+impl<T: Component> Deref for ResMut<T> {
+    type Target = Mut<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Component> DerefMut for ResMut<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T: Component> HandlerParam for ResMut<T> {
+    type Item = ResMut<T>;
+
+    fn meta() -> EventHandlerMeta {
+        EventHandlerMeta::default().res_mut::<T>()
+    }
+
+    async fn fetch(world: WorldView) -> Self::Item {
+        ResMut(world.get_resource_mut::<T>().await.unwrap())
+    }
+
+    async fn can_run(world: WorldView) -> bool {
+        world.has_resource::<T>().await
+    }
+}
+
+impl<T: Component> HandlerParam for Option<ResMut<T>> {
+    type Item = Option<ResMut<T>>;
+
+    fn meta() -> EventHandlerMeta {
+        EventHandlerMeta::default().res_mut::<T>()
+    }
+
+    async fn fetch(world: WorldView) -> Self::Item {
+        Some(ResMut(world.get_resource_mut::<T>().await?))
+    }
+
+    async fn can_run(_world: WorldView) -> bool {
+        true
+    }
+}
+
+macro_rules! impl_handler_param_tuple {
+    ($($param:ident),*) => {
+        impl<$($param: HandlerParam),*> HandlerParam for ($($param,)*) {
+            type Item = ($($param::Item,)*);
+
+            fn meta() -> EventHandlerMeta {
+                let mut meta = EventHandlerMeta::default();
+                $(
+                    let meta2 = $param::meta();
+                    assert!(meta.is_compatible(&meta2));
+                    meta = meta + meta2;
+                )*
+                meta
+            }
+
+            async fn fetch(world: WorldView) -> Self::Item {
+                ($($param::fetch(world.clone()).await,)*)
+            }
+
+            async fn can_run(world: WorldView) -> bool {
+                let mut can = true;
+                    $(can &= $param::can_run(world.clone()).await;)*
+                    can
+            }
+        }
+    };
+}
+
+impl_handler_param_tuple!(A);
+impl_handler_param_tuple!(A, B);
+impl_handler_param_tuple!(A, B, C);
+impl_handler_param_tuple!(A, B, C, D);
+impl_handler_param_tuple!(A, B, C, D, E);
+impl_handler_param_tuple!(A, B, C, D, E, F);
+impl_handler_param_tuple!(A, B, C, D, E, F, G);
+impl_handler_param_tuple!(A, B, C, D, E, F, G, H);
+impl_handler_param_tuple!(A, B, C, D, E, F, G, H, I);
+impl_handler_param_tuple!(A, B, C, D, E, F, G, H, I, J);
+impl_handler_param_tuple!(A, B, C, D, E, F, G, H, I, J, K);
+impl_handler_param_tuple!(A, B, C, D, E, F, G, H, I, J, K, L);
+impl_handler_param_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+impl_handler_param_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+impl_handler_param_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
+impl_handler_param_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
 
 pub struct FunctionEventHandler<M, F>
 where
@@ -53,7 +300,14 @@ where
 {
     fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()> {
         let event: Arc<<F as EventHandlerFn<M>>::Event> = event.into_any_arc().downcast().unwrap();
-        self.func.run(world, event)
+        let func = self.func.clone();
+        async move {
+            if <F::Param>::can_run(world.clone()).await {
+                let param = <F::Param>::fetch(world.clone()).await;
+                func.run(world, event, param).await;
+            }
+        }
+        .boxed()
     }
 }
 
@@ -77,16 +331,72 @@ where
     T: DowncastSync,
 {
     type Event = T;
+    type Param = ();
 
-    fn run(&self, world: WorldView, event: Arc<Self::Event>) -> BoxFuture<'static, ()> {
+    fn run(
+        &self,
+        world: WorldView,
+        event: Arc<Self::Event>,
+        _param: HandlerParamItem<Self::Param>,
+    ) -> BoxFuture<'static, ()> {
         (self)(world, event).boxed()
     }
+}
+
+macro_rules! impl_fn_event_handler {
+    ($($param:ident),*) => {
+        #[allow(unused, non_snake_case)]
+        impl<Func, Fut, Event, $($param),*> EventHandlerFn<fn(WorldView, Arc<Event>, $($param,)*)> for Func
+        where
+            Func: Fn(WorldView, Arc<Event>, $($param),*) -> Fut + Send + Sync + 'static
+                + Fn(WorldView, Arc<Event>, $(HandlerParamItem<$param>),*) -> Fut + Send + Sync + 'static,
+            $($param: HandlerParam + 'static),*,
+            Fut: Future<Output = ()> + Send + Sync + 'static,
+            Event: DowncastSync,
+        {
+            type Event = Event;
+            type Param = ($($param),*);
+
+            fn run(
+                &self,
+                world: WorldView,
+                event: Arc<Self::Event>,
+                param: HandlerParamItem<Self::Param>,
+            ) -> BoxFuture<'static, ()> {
+                let ($($param),*) = param;
+                (self)(world, event, $($param),*).boxed()
+            }
+        }
+    };
+}
+
+impl_fn_event_handler!(A);
+impl_fn_event_handler!(A, B);
+impl_fn_event_handler!(A, B, C);
+impl_fn_event_handler!(A, B, C, D);
+impl_fn_event_handler!(A, B, C, D, E);
+impl_fn_event_handler!(A, B, C, D, E, F);
+impl_fn_event_handler!(A, B, C, D, E, F, G);
+impl_fn_event_handler!(A, B, C, D, E, F, G, H);
+impl_fn_event_handler!(A, B, C, D, E, F, G, H, I);
+impl_fn_event_handler!(A, B, C, D, E, F, G, H, I, J);
+impl_fn_event_handler!(A, B, C, D, E, F, G, H, I, J, K);
+impl_fn_event_handler!(A, B, C, D, E, F, G, H, I, J, K, L);
+impl_fn_event_handler!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+impl_fn_event_handler!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+impl_fn_event_handler!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
+impl_fn_event_handler!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
+
+#[derive(Clone)]
+pub(crate) struct DynEventHandler {
+    pub handler: Arc<dyn EventHandler>,
+    pub meta: Arc<EventHandlerMeta>,
 }
 
 #[derive(Clone)]
 pub(crate) struct DynEventHandlers {
     pub event_type_id: TypeInfo,
-    pub handlers: Arc<RwLock<StableDiGraph<Arc<dyn EventHandler>, ()>>>,
+    pub handlers: Arc<RwLock<StableDiGraph<DynEventHandler, ()>>>,
     pub index_cache: Arc<RwLock<TypeIdMap<NodeIndex>>>,
 }
 
@@ -107,7 +417,10 @@ impl DynEventHandlers {
     {
         assert_eq!(TypeInfo::of::<T>(), self.event_type_id);
         let config = handler.finish();
-        let index = self.handlers.blocking_write().add_node(config.handler);
+        let index = self.handlers.blocking_write().add_node(DynEventHandler {
+            handler: config.handler,
+            meta: config.meta,
+        });
         self.index_cache
             .blocking_write()
             .insert(config.handler_type_id, index);
@@ -140,6 +453,7 @@ pub enum HandlerAddOption {
 pub struct HandlerConfig<T: DowncastSync> {
     handler_type_id: TypeInfo,
     handler: Arc<dyn EventHandler>,
+    meta: Arc<EventHandlerMeta>,
     options: FxHashSet<HandlerAddOption>,
     _marker: PhantomData<T>,
 }
@@ -150,9 +464,11 @@ impl<T: DowncastSync> HandlerConfig<T> {
         F: EventHandlerFn<M, Event = T>,
         M: 'static,
     {
+        let handler = handler.into_event_handler();
         Self {
             handler_type_id: TypeInfo::of::<F>(),
-            handler: handler.into_event_handler(),
+            meta: Arc::new(handler.meta()),
+            handler,
             options: FxHashSet::default(),
             _marker: PhantomData,
         }

@@ -136,7 +136,15 @@ impl DynEvent {
 
             for node in batch {
                 let handler = handlers[node].clone();
-                let jh = tokio::spawn(handler.run_dyn(world.clone(), tag.clone()));
+                let jh = tokio::spawn({
+                    let world = world.clone();
+                    let tag = tag.clone();
+                    async move {
+                        if handler.meta.can_run(&world).await {
+                            handler.handler.run_dyn(world, tag).await;
+                        }
+                    }
+                });
                 join_handles.push(jh);
             }
 

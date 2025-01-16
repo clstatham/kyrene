@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use kyrene_core::{
+    handler::{Res, ResMut},
     plugin::Plugin,
     prelude::{World, WorldView},
 };
@@ -165,33 +166,28 @@ impl CreateRenderPipeline for HdrRenderPipeline {
     }
 }
 
-pub async fn init_hdr_target(world: WorldView, _event: Arc<InitRenderResources>) {
+pub async fn init_hdr_target(
+    world: WorldView,
+    _event: Arc<InitRenderResources>,
+    window_settings: Res<WindowSettings>,
+    device: Res<Device>,
+) {
     if world.has_resource::<HdrRenderTarget>().await {
         return;
     }
-    let window_settings = world.get_resource::<WindowSettings>().await.unwrap();
-    let device = world.get_resource::<Device>().await.unwrap();
 
     let hdr_target = HdrRenderTarget::create(&window_settings, &device);
     world.insert_resource(hdr_target).await;
 }
 
-pub async fn render_hdr(world: WorldView, _event: Arc<Render>) {
-    if !world.has_resource::<BindGroup<HdrRenderTarget>>().await {
-        return;
-    }
-
-    let mut encoder = world
-        .get_resource_mut::<ActiveCommandEncoder>()
-        .await
-        .unwrap();
-    let current_frame = world.get_resource::<CurrentFrame>().await.unwrap();
-    let pipelines = world.get_resource::<RenderPipelines>().await.unwrap();
-    let bind_group = world
-        .get_resource::<BindGroup<HdrRenderTarget>>()
-        .await
-        .unwrap();
-
+pub async fn render_hdr(
+    _world: WorldView,
+    _event: Arc<Render>,
+    mut encoder: ResMut<ActiveCommandEncoder>,
+    current_frame: Res<CurrentFrame>,
+    pipelines: Res<RenderPipelines>,
+    bind_group: Res<BindGroup<HdrRenderTarget>>,
+) {
     let pipeline = pipelines.get_pipeline_for::<HdrRenderPipeline>().unwrap();
     let Some(current_frame) = current_frame.inner.as_ref() else {
         return;
@@ -214,7 +210,7 @@ pub async fn render_hdr(world: WorldView, _event: Arc<Render>) {
         });
 
         render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, &**bind_group, &[]);
+        render_pass.set_bind_group(0, &***bind_group, &[]);
         render_pass.draw(0..3, 0..1);
     }
 }

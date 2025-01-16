@@ -10,6 +10,7 @@ use futures::{stream::FuturesUnordered, Stream, StreamExt};
 use crate::{
     component::Mut,
     entity::{Entity, EntitySet},
+    handler::{EventHandlerMeta, HandlerParam},
     prelude::{Component, Ref, WorldView},
 };
 
@@ -20,14 +21,18 @@ pub struct QueryFilterState {
 pub trait Queryable: Send + Sync {
     type Item: Send + Sync;
 
-    fn filter_state(world: &WorldView, state: &mut QueryFilterState) -> impl Future<Output = ()>;
+    fn filter_state(
+        world: &WorldView,
+        state: &mut QueryFilterState,
+    ) -> impl Future<Output = ()> + Send;
 
     fn get(
         world: &WorldView,
         state: &QueryFilterState,
         entity: Entity,
-    ) -> impl Future<Output = Option<Self::Item>>;
-    fn iter(world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item>;
+    ) -> impl Future<Output = Option<Self::Item>> + Send;
+
+    fn iter(world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item> + Send;
 }
 
 impl Queryable for Entity {
@@ -43,7 +48,7 @@ impl Queryable for Entity {
         Some(entity)
     }
 
-    fn iter(_world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item> {
+    fn iter(_world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item> + Send {
         futures::stream::iter(state.entities_matching.iter().copied()).fuse()
     }
 }
@@ -72,7 +77,7 @@ impl<T: Component> Queryable for &T {
         }
     }
 
-    fn iter(world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item> {
+    fn iter(world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item> + Send {
         let futs = FuturesUnordered::new();
         for entity in state.entities_matching.iter() {
             futs.push(async move { world.get::<T>(*entity).await.unwrap() });
@@ -103,7 +108,7 @@ impl<T: Component> Queryable for &mut T {
         }
     }
 
-    fn iter(world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item> {
+    fn iter(world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item> + Send {
         let futs = FuturesUnordered::new();
         for entity in state.entities_matching.iter() {
             futs.push(async move { world.get_mut::<T>(*entity).await.unwrap() });
@@ -142,6 +147,10 @@ impl_zip_stream_tuple!(A);
 impl_zip_stream_tuple!(A, B);
 impl_zip_stream_tuple!(A, B, C);
 impl_zip_stream_tuple!(A, B, C, D);
+impl_zip_stream_tuple!(A, B, C, D, E);
+impl_zip_stream_tuple!(A, B, C, D, E, F);
+impl_zip_stream_tuple!(A, B, C, D, E, F, G);
+impl_zip_stream_tuple!(A, B, C, D, E, F, G, H);
 
 macro_rules! impl_queryable_tuple {
     ($($name:ident),*) => {
@@ -163,7 +172,7 @@ macro_rules! impl_queryable_tuple {
                 )*))
             }
 
-            fn iter(world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item> {
+            fn iter(world: &WorldView, state: &QueryFilterState) -> impl Stream<Item = Self::Item> + Send {
                 ZipStream { zip: ($(
                     Box::pin($name::iter(world, state)),
                 )*)}.fuse()
@@ -175,6 +184,10 @@ impl_queryable_tuple!(A);
 impl_queryable_tuple!(A, B);
 impl_queryable_tuple!(A, B, C);
 impl_queryable_tuple!(A, B, C, D);
+impl_queryable_tuple!(A, B, C, D, E);
+impl_queryable_tuple!(A, B, C, D, E, F);
+impl_queryable_tuple!(A, B, C, D, E, F, G);
+impl_queryable_tuple!(A, B, C, D, E, F, G, H);
 
 pub struct Query<Q: Queryable> {
     state: QueryFilterState,
@@ -203,5 +216,21 @@ impl<Q: Queryable> Query<Q> {
 
     pub fn iter(&self) -> impl Stream<Item = Q::Item> + use<'_, Q> {
         Q::iter(&self.world, &self.state)
+    }
+}
+
+impl<Q: Queryable> HandlerParam for Query<Q> {
+    type Item = Query<Q>;
+
+    fn meta() -> EventHandlerMeta {
+        EventHandlerMeta::default()
+    }
+
+    async fn fetch(world: WorldView) -> Self::Item {
+        world.query::<Q>().await
+    }
+
+    async fn can_run(_world: WorldView) -> bool {
+        true
     }
 }

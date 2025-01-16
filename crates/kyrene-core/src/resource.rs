@@ -40,6 +40,10 @@ impl Resources {
         self.map.contains_key(&component_type_id)
     }
 
+    pub(crate) fn contains_dyn(&self, resource_type_id: TypeInfo) -> bool {
+        self.map.contains_key(&resource_type_id)
+    }
+
     pub async fn get<T: Component>(&mut self) -> Option<Ref<T>> {
         let component_type_id = TypeInfo::of::<T>();
 

@@ -21,6 +21,9 @@ pub mod world_view;
 #[doc(hidden)]
 pub extern crate tokio;
 
+#[doc(hidden)]
+pub extern crate self as kyrene_core;
+
 pub mod prelude {
     pub use crate::{
         block_on,

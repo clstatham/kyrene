@@ -113,7 +113,7 @@ impl<T> DerefMut for TypeIdMap<T> {
 }
 
 // pub type TypeIdMap<T> = hashbrown::HashMap<TypeId, T, BuildHasherDefault<TypeIdHasher>>;
-pub type TypeIdSet = hashbrown::HashSet<TypeId, BuildHasherDefault<TypeIdHasher>>;
+pub type TypeIdSet = hashbrown::HashSet<TypeInfo, BuildHasherDefault<TypeIdHasher>>;
 
 pub type FxHashMap<K, V> = hashbrown::HashMap<K, V, rustc_hash::FxBuildHasher>;
 pub type FxHashSet<T> = hashbrown::HashSet<T, rustc_hash::FxBuildHasher>;

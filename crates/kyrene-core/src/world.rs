@@ -12,6 +12,7 @@ use crate::{
     lock::RwLock,
     plugin::Plugin,
     resource::Resources,
+    util::TypeInfo,
     world_view::WorldView,
 };
 
@@ -99,6 +100,10 @@ impl World {
 
     pub fn has_resource<T: Component>(&self) -> bool {
         self.resources.contains::<T>()
+    }
+
+    pub(crate) fn has_resource_dyn(&self, resource_type_id: TypeInfo) -> bool {
+        self.resources.contains_dyn(resource_type_id)
     }
 
     pub async fn get_resource<T: Component>(&mut self) -> Option<Ref<T>> {

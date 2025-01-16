@@ -2,8 +2,10 @@ use std::{marker::PhantomData, sync::Arc};
 
 use kyrene_core::{
     entity::Entity,
+    handler::{Res, ResMut},
     plugin::Plugin,
     prelude::{Component, StreamExt, WorldView},
+    query::Query,
     util::TypeIdMap,
 };
 
@@ -65,13 +67,13 @@ impl<T: CreateBindGroup> Plugin for ComponentBindGroupPlugin<T> {
 pub async fn create_component_bind_group<T: CreateBindGroup>(
     world: WorldView,
     _event: Arc<InitRenderResources>,
+    device: Res<Device>,
+    mut layouts: ResMut<BindGroupLayouts>,
+    item_query: Query<(Entity, &T)>,
 ) {
-    let item_query = world.query::<(Entity, &T)>().await;
     let mut item_query = item_query.iter();
     while let Some((entity, item)) = item_query.next().await {
         if !world.has::<BindGroup<T>>(entity).await {
-            let device = world.get_resource::<Device>().await.unwrap();
-            let mut layouts = world.get_resource_mut::<BindGroupLayouts>().await.unwrap();
             let bind_group = BindGroup::create(&device, &*item, &mut layouts);
             world.insert(entity, bind_group).await;
         }
@@ -88,21 +90,19 @@ impl<T: CreateBindGroup> Default for ResourceBindGroupPlugin<T> {
 
 impl<T: CreateBindGroup> Plugin for ResourceBindGroupPlugin<T> {
     async fn build(self, world: &mut kyrene_core::prelude::World) {
-        world.add_event_handler(create_component_bind_group::<T>);
+        world.add_event_handler(create_resource_bind_group::<T>);
     }
 }
 
 pub async fn create_resource_bind_group<T: CreateBindGroup>(
     world: WorldView,
     _event: Arc<InitRenderResources>,
+    item: Res<T>,
+    device: Res<Device>,
+    mut layouts: ResMut<BindGroupLayouts>,
 ) {
     if !world.has_resource::<BindGroup<T>>().await {
-        if let Some(item) = world.get_resource::<T>().await {
-            let device = world.get_resource::<Device>().await.unwrap();
-            let mut layouts = world.get_resource_mut::<BindGroupLayouts>().await.unwrap();
-
-            let bind_group = BindGroup::create(&device, &*item, &mut layouts);
-            world.insert_resource(bind_group).await;
-        }
+        let bind_group = BindGroup::create(&device, &**item, &mut layouts);
+        world.insert_resource(bind_group).await;
     }
 }

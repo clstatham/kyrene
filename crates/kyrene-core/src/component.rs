@@ -1,5 +1,6 @@
 use std::{
     any::TypeId,
+    fmt::Debug,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
@@ -49,6 +50,12 @@ impl<T: Component> Deref for Ref<T> {
     }
 }
 
+impl<T: Component + Debug> Debug for Ref<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.downcast_ref::<T>().unwrap().fmt(f)
+    }
+}
+
 pub struct Mut<T: Component> {
     pub(crate) inner: LoanMut<Box<dyn Component>>,
     pub(crate) _marker: PhantomData<T>,
@@ -65,6 +72,12 @@ impl<T: Component> Deref for Mut<T> {
 impl<T: Component> DerefMut for Mut<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.inner.downcast_mut().unwrap()
+    }
+}
+
+impl<T: Component + Debug> Debug for Mut<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.downcast_ref::<T>().unwrap().fmt(f)
     }
 }
 

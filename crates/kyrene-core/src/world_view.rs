@@ -10,6 +10,7 @@ use crate::{
     event::Event,
     lock::RwLock,
     query::{Query, Queryable},
+    util::TypeInfo,
     world::World,
 };
 
@@ -90,6 +91,10 @@ impl WorldView {
 
     pub async fn has_resource<T: Component>(&self) -> bool {
         self.world.read().await.has_resource::<T>()
+    }
+
+    pub(crate) async fn has_resource_dyn(&self, resource_type_id: TypeInfo) -> bool {
+        self.world.read().await.has_resource_dyn(resource_type_id)
     }
 
     pub async fn get_resource<T: Component>(&self) -> Option<Ref<T>> {

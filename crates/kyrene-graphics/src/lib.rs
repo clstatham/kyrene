@@ -225,10 +225,11 @@ impl Plugin for WgpuPlugin {
         world.add_event_handler(end_render);
         world.add_event_handler(post_render);
 
-        world.add_plugin(HdrPlugin);
         world.insert_resource(CurrentFrame::default()).await;
         world.insert_resource(BindGroupLayouts::default()).await;
         world.insert_resource(RenderPipelines::default()).await;
+
+        world.add_plugin(HdrPlugin);
     }
 }
 
