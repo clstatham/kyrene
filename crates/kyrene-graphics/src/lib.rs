@@ -6,7 +6,13 @@ use std::{
 use bind_group::BindGroupLayouts;
 use camera::{insert_view_target, GpuCamera, InsertViewTarget, ViewTarget};
 use hdr::HdrPlugin;
-use kyrene_core::{entity::Entity, plugin::Plugin, prelude::WorldView, world::World};
+use kyrene_core::{
+    entity::Entity,
+    handler::{Res, ResMut},
+    plugin::Plugin,
+    prelude::WorldView,
+    world::World,
+};
 use pipeline::RenderPipelines;
 use texture::texture_format::{DEPTH_FORMAT, VIEW_FORMAT};
 use window::{RedrawRequested, WindowCreated};
@@ -239,6 +245,7 @@ async fn redraw_requested(world: WorldView, _event: Arc<RedrawRequested>) {
     if !world.has_resource::<Device>().await {
         return;
     }
+    tracing::trace!("redraw_requested");
     world.fire_event(InitRenderResources, true).await;
     world.fire_event(PreRender, true).await;
     world.fire_event(Render, true).await;
@@ -246,6 +253,8 @@ async fn redraw_requested(world: WorldView, _event: Arc<RedrawRequested>) {
 }
 
 pub async fn pre_render(world: WorldView, _event: Arc<PreRender>) {
+    tracing::trace!("pre_render");
+
     world.fire_event(BeginRender, true).await;
     world
         .query_iter::<(Entity, &GpuCamera)>(|world, (camera, _)| async move {
@@ -255,23 +264,30 @@ pub async fn pre_render(world: WorldView, _event: Arc<PreRender>) {
 }
 
 pub async fn post_render(world: WorldView, _event: Arc<PostRender>) {
+    tracing::trace!("post_render");
+
     world.fire_event(EndRender, true).await;
 }
 
-pub async fn begin_render(world: WorldView, _event: Arc<BeginRender>) {
-    let mut current_frame = world.get_resource_mut::<CurrentFrame>().await.unwrap();
+pub async fn begin_render(
+    world: WorldView,
+    _event: Arc<BeginRender>,
+    mut current_frame: ResMut<CurrentFrame>,
+    surface: Res<WindowSurface>,
+    device: Res<Device>,
+    mut command_buffers: ResMut<CommandBuffers>,
+) {
     if current_frame.inner.is_some() {
         return;
     }
+
+    tracing::trace!("begin_render");
 
     let view_targets = world.entities_with::<ViewTarget>().await;
     for entity in view_targets {
         world.remove::<ViewTarget>(entity).await;
     }
 
-    let Some(surface) = world.get_resource::<WindowSurface>().await else {
-        return;
-    };
     let frame = match surface.get_current_texture() {
         Ok(frame) => frame,
         Err(e) => {
@@ -290,8 +306,6 @@ pub async fn begin_render(world: WorldView, _event: Arc<BeginRender>) {
         dimension: Some(wgpu::TextureViewDimension::D2),
         ..Default::default()
     });
-
-    let device = world.get_resource::<Device>().await.unwrap();
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Render Initial Encoder"),
@@ -318,7 +332,6 @@ pub async fn begin_render(world: WorldView, _event: Arc<BeginRender>) {
             ..Default::default()
         });
     }
-    let mut command_buffers = world.get_resource_mut::<CommandBuffers>().await.unwrap();
     command_buffers.enqueue(encoder.finish());
 
     current_frame.inner.replace(CurrentFrameInner {
@@ -338,17 +351,22 @@ pub async fn begin_render(world: WorldView, _event: Arc<BeginRender>) {
 
 pub struct EndRender;
 
-pub async fn end_render(world: WorldView, _event: Arc<EndRender>) {
-    let mut current_frame = world.get_resource_mut::<CurrentFrame>().await.unwrap();
+pub async fn end_render(
+    world: WorldView,
+    _event: Arc<EndRender>,
+    mut command_buffers: ResMut<CommandBuffers>,
+    mut current_frame: ResMut<CurrentFrame>,
+    queue: Res<Queue>,
+) {
     let Some(current_frame) = current_frame.inner.take() else {
         return;
     };
 
+    tracing::trace!("end_render");
+
     let CurrentFrameInner {
         surface_texture, ..
     } = current_frame;
-
-    let mut command_buffers = world.get_resource_mut::<CommandBuffers>().await.unwrap();
 
     if let Some(encoder) = world.remove_resource::<ActiveCommandEncoder>().await {
         command_buffers.enqueue(encoder.finish());
@@ -356,8 +374,6 @@ pub async fn end_render(world: WorldView, _event: Arc<EndRender>) {
 
     let command_buffers: Vec<wgpu::CommandBuffer> =
         std::mem::take(&mut command_buffers.command_buffers);
-
-    let queue = world.get_resource::<Queue>().await.unwrap();
 
     queue.submit(command_buffers);
 

@@ -1,7 +1,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use encase::ShaderType;
-use kyrene_core::{entity::Entity, prelude::WorldView};
+use kyrene_core::{entity::Entity, handler::Res, prelude::WorldView};
 
 use crate::CurrentFrame;
 
@@ -140,8 +140,12 @@ pub struct InsertViewTarget {
     pub camera: Entity,
 }
 
-pub async fn insert_view_target(world: WorldView, event: Arc<InsertViewTarget>) {
-    let current_frame = world.get_resource::<CurrentFrame>().await.unwrap();
+pub async fn insert_view_target(
+    world: WorldView,
+    event: Arc<InsertViewTarget>,
+    current_frame: Res<CurrentFrame>,
+) {
+    tracing::trace!("insert_view_target");
     let inner = current_frame.inner.as_ref().unwrap();
     let view_target = ViewTarget {
         color_target: inner.color_view.clone(),

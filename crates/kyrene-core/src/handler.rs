@@ -11,7 +11,7 @@ use petgraph::prelude::*;
 
 use crate::{
     component::Mut,
-    event::{DynEvent, Event},
+    event::{DynEvent, Event, EventDispatcher},
     lock::RwLock,
     prelude::{Component, Ref},
     util::{FxHashSet, TypeIdMap, TypeIdSet, TypeInfo},
@@ -245,7 +245,7 @@ macro_rules! impl_handler_param_tuple {
             }
 
             async fn fetch(world: WorldView) -> Self::Item {
-                ($($param::fetch(world.clone()).await,)*)
+                tokio::join!($($param::fetch(world.clone()),)*)
             }
 
             async fn can_run(world: WorldView) -> bool {
@@ -328,7 +328,7 @@ impl<Func, Fut, T> EventHandlerFn<fn(WorldView, Arc<T>)> for Func
 where
     Func: Fn(WorldView, Arc<T>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + Sync + 'static,
-    T: DowncastSync,
+    T: Event,
 {
     type Event = T;
     type Param = ();
@@ -352,7 +352,7 @@ macro_rules! impl_fn_event_handler {
                 + Fn(WorldView, Arc<Event>, $(HandlerParamItem<$param>),*) -> Fut + Send + Sync + 'static,
             $($param: HandlerParam + 'static),*,
             Fut: Future<Output = ()> + Send + Sync + 'static,
-            Event: DowncastSync,
+            Event: $crate::event::Event,
         {
             type Event = Event;
             type Param = ($($param),*);
@@ -401,7 +401,7 @@ pub(crate) struct DynEventHandlers {
 }
 
 impl DynEventHandlers {
-    pub fn new<T: DowncastSync>() -> Self {
+    pub fn new<T: Event>() -> Self {
         Self {
             event_type_id: TypeInfo::of::<T>(),
             handlers: Arc::new(RwLock::new(StableDiGraph::new())),
@@ -411,7 +411,7 @@ impl DynEventHandlers {
 
     pub fn insert<T, F, M>(&self, handler: F) -> NodeIndex
     where
-        T: DowncastSync,
+        T: Event,
         F: IntoHandlerConfig<M, Event = T>,
         M: 'static,
     {
@@ -450,7 +450,7 @@ pub enum HandlerAddOption {
     Before(TypeInfo),
 }
 
-pub struct HandlerConfig<T: DowncastSync> {
+pub struct HandlerConfig<T: Event> {
     handler_type_id: TypeInfo,
     handler: Arc<dyn EventHandler>,
     meta: Arc<EventHandlerMeta>,
@@ -458,7 +458,7 @@ pub struct HandlerConfig<T: DowncastSync> {
     _marker: PhantomData<T>,
 }
 
-impl<T: DowncastSync> HandlerConfig<T> {
+impl<T: Event> HandlerConfig<T> {
     pub fn new<F, M>(handler: F) -> Self
     where
         F: EventHandlerFn<M, Event = T>,
@@ -496,7 +496,7 @@ impl<T: DowncastSync> HandlerConfig<T> {
 }
 
 pub trait IntoHandlerConfig<M>: Sized + 'static {
-    type Event: DowncastSync;
+    type Event: Event;
 
     fn finish(self) -> HandlerConfig<Self::Event>;
 
@@ -519,7 +519,7 @@ pub trait IntoHandlerConfig<M>: Sized + 'static {
 
 impl<T, F, M> IntoHandlerConfig<M> for F
 where
-    T: DowncastSync,
+    T: Event,
     F: EventHandlerFn<M, Event = T>,
     M: 'static,
 {
@@ -530,7 +530,7 @@ where
     }
 }
 
-impl<T: DowncastSync> IntoHandlerConfig<()> for HandlerConfig<T> {
+impl<T: Event> IntoHandlerConfig<()> for HandlerConfig<T> {
     type Event = T;
 
     fn finish(self) -> HandlerConfig<Self::Event> {
@@ -544,27 +544,27 @@ pub(crate) struct Events {
 }
 
 impl Events {
-    pub fn add_event<T: DowncastSync>(&mut self) -> Event<T> {
+    pub fn add_event<T: Event>(&mut self) -> EventDispatcher<T> {
         if let Some(event) = self.get_event::<T>() {
             return event;
         }
         let event = DynEvent::new::<T>();
         self.entries.insert_for::<T>(event.clone());
-        Event::from_dyn_event(event)
+        EventDispatcher::from_dyn_event(event)
     }
 
-    pub fn get_event<T: DowncastSync>(&self) -> Option<Event<T>> {
+    pub fn get_event<T: Event>(&self) -> Option<EventDispatcher<T>> {
         let event = self.entries.get_for::<T>()?.clone();
-        Some(Event::from_dyn_event(event))
+        Some(EventDispatcher::from_dyn_event(event))
     }
 
-    pub fn has_event<T: DowncastSync>(&self) -> bool {
+    pub fn has_event<T: Event>(&self) -> bool {
         self.entries.contains_type::<T>()
     }
 
     pub fn add_handler<T, F, M>(&mut self, handler: F)
     where
-        T: DowncastSync,
+        T: Event,
         F: IntoHandlerConfig<M, Event = T>,
         M: 'static,
     {

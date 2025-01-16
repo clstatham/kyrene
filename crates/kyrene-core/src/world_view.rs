@@ -7,7 +7,7 @@ use crate::{
     bundle::Bundle,
     component::{Component, Mut, Ref},
     entity::{Entity, EntitySet},
-    event::Event,
+    event::{Event, EventDispatcher},
     lock::RwLock,
     query::{Query, Queryable},
     util::TypeInfo,
@@ -51,11 +51,11 @@ impl WorldView {
     }
 
     pub async fn get<T: Component>(&self, entity: Entity) -> Option<Ref<T>> {
-        self.world.write().await.get::<T>(entity).await
+        self.world.read().await.get::<T>(entity).await
     }
 
     pub async fn get_mut<T: Component>(&self, entity: Entity) -> Option<Mut<T>> {
-        self.world.write().await.get_mut::<T>(entity).await
+        self.world.read().await.get_mut::<T>(entity).await
     }
 
     pub async fn has<T: Component>(&self, entity: Entity) -> bool {
@@ -98,35 +98,27 @@ impl WorldView {
     }
 
     pub async fn get_resource<T: Component>(&self) -> Option<Ref<T>> {
-        self.world.write().await.get_resource::<T>().await
+        self.world.read().await.get_resource::<T>().await
     }
 
     pub async fn get_resource_mut<T: Component>(&self) -> Option<Mut<T>> {
-        self.world.write().await.get_resource_mut::<T>().await
+        self.world.read().await.get_resource_mut::<T>().await
     }
 
-    pub async fn await_resource<T: Component>(&self) -> Ref<T> {
-        self.world.write().await.await_resource::<T>().await
-    }
-
-    pub async fn await_resource_mut<T: Component>(&self) -> Mut<T> {
-        self.world.write().await.await_resource_mut::<T>().await
-    }
-
-    pub async fn add_event<T: Component>(&self) -> Event<T> {
+    pub async fn add_event<T: Event>(&self) -> EventDispatcher<T> {
         self.world.write().await.add_event::<T>()
     }
 
-    pub async fn get_event<T: Component>(&self) -> Option<Event<T>> {
+    pub async fn get_event<T: Event>(&self) -> Option<EventDispatcher<T>> {
         self.world.read().await.get_event::<T>()
     }
 
-    pub async fn has_event<T: Component>(&self) -> bool {
+    pub async fn has_event<T: Event>(&self) -> bool {
         self.world.read().await.has_event::<T>()
     }
 
-    pub async fn fire_event<T: Component>(&self, payload: T, await_all_handlers: bool) -> usize {
-        let event = { self.world.read().await.get_event::<T>().unwrap() };
-        event.fire(self.clone(), payload, await_all_handlers).await
+    pub async fn fire_event<T: Event>(&self, event: T, await_all_handlers: bool) -> usize {
+        let dis = { self.world.read().await.get_event::<T>().unwrap() };
+        dis.fire(self.clone(), event, await_all_handlers).await
     }
 }

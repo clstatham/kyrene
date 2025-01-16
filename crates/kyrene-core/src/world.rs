@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
-use downcast_rs::DowncastSync;
 use tracing::level_filters::LevelFilter;
 
 use crate::{
     bundle::Bundle,
     component::{Component, Components, Mut, Ref},
     entity::{Entities, Entity},
-    event::Event,
+    event::{Event, EventDispatcher},
     handler::{Events, IntoHandlerConfig},
     lock::RwLock,
     plugin::Plugin,
@@ -74,11 +73,11 @@ impl World {
         self.components.remove(entity).await
     }
 
-    pub async fn get<T: Component>(&mut self, entity: Entity) -> Option<Ref<T>> {
+    pub async fn get<T: Component>(&self, entity: Entity) -> Option<Ref<T>> {
         self.components.get(entity).await
     }
 
-    pub async fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<Mut<T>> {
+    pub async fn get_mut<T: Component>(&self, entity: Entity) -> Option<Mut<T>> {
         self.components.get_mut(entity).await
     }
 
@@ -106,11 +105,11 @@ impl World {
         self.resources.contains_dyn(resource_type_id)
     }
 
-    pub async fn get_resource<T: Component>(&mut self) -> Option<Ref<T>> {
+    pub async fn get_resource<T: Component>(&self) -> Option<Ref<T>> {
         self.resources.get::<T>().await
     }
 
-    pub async fn get_resource_mut<T: Component>(&mut self) -> Option<Mut<T>> {
+    pub async fn get_resource_mut<T: Component>(&self) -> Option<Mut<T>> {
         self.resources.get_mut::<T>().await
     }
 
@@ -123,22 +122,22 @@ impl World {
     }
 
     #[track_caller]
-    pub fn add_event<T: Component>(&mut self) -> Event<T> {
+    pub fn add_event<T: Event>(&mut self) -> EventDispatcher<T> {
         self.events.add_event::<T>()
     }
 
-    pub fn get_event<T: Component>(&self) -> Option<Event<T>> {
+    pub fn get_event<T: Event>(&self) -> Option<EventDispatcher<T>> {
         self.events.get_event::<T>()
     }
 
-    pub fn has_event<T: Component>(&self) -> bool {
+    pub fn has_event<T: Event>(&self) -> bool {
         self.events.has_event::<T>()
     }
 
     #[track_caller]
     pub fn add_event_handler<T, F, M>(&mut self, handler: F)
     where
-        T: DowncastSync,
+        T: Event,
         F: IntoHandlerConfig<M, Event = T> + 'static,
         M: 'static,
     {
@@ -188,13 +187,12 @@ impl World {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
 pub struct WorldTick {
     pub tick: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct WorldStartup;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct WorldShutdown;

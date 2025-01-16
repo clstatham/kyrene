@@ -74,6 +74,10 @@ pub async fn create_component_bind_group<T: CreateBindGroup>(
     let mut item_query = item_query.iter();
     while let Some((entity, item)) = item_query.next().await {
         if !world.has::<BindGroup<T>>(entity).await {
+            tracing::trace!(
+                "create_component_bind_group::<{}>",
+                std::any::type_name::<T>()
+            );
             let bind_group = BindGroup::create(&device, &*item, &mut layouts);
             world.insert(entity, bind_group).await;
         }
@@ -102,6 +106,10 @@ pub async fn create_resource_bind_group<T: CreateBindGroup>(
     mut layouts: ResMut<BindGroupLayouts>,
 ) {
     if !world.has_resource::<BindGroup<T>>().await {
+        tracing::trace!(
+            "create_resource_bind_group::<{}>",
+            std::any::type_name::<T>()
+        );
         let bind_group = BindGroup::create(&device, &**item, &mut layouts);
         world.insert_resource(bind_group).await;
     }

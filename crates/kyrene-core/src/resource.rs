@@ -1,27 +1,28 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
-    component::Mut,
-    loan::LoanStorage,
+    component::{DynComponent, Mut},
+    lock::RwLock,
     prelude::{Component, Ref},
     util::{TypeIdMap, TypeInfo},
 };
 
 #[derive(Default)]
 pub struct Resources {
-    map: TypeIdMap<LoanStorage<Box<dyn Component>>>,
+    map: TypeIdMap<Arc<RwLock<Option<DynComponent>>>>,
 }
 
 impl Resources {
     pub async fn insert<T: Component>(&mut self, resource: T) -> Option<T> {
         let component_type_id = TypeInfo::of::<T>();
 
-        let old = self
-            .map
-            .insert(component_type_id, LoanStorage::new(Box::new(resource)))?;
+        let old = self.map.insert(
+            component_type_id,
+            Arc::new(RwLock::new(Some(DynComponent::new(resource)))),
+        )?;
 
-        let old = old.await_owned().await;
-        let old: T = *old.downcast().unwrap_or_else(|_| unreachable!());
+        let old = old.write().await.take().unwrap();
+        let old: T = *old.component.downcast().unwrap_or_else(|_| unreachable!());
         Some(old)
     }
 
@@ -30,8 +31,11 @@ impl Resources {
 
         let component = self.map.remove(&component_type_id)?;
 
-        let component = component.await_owned().await;
-        let component: T = *component.downcast().unwrap_or_else(|_| unreachable!());
+        let component = component.write().await.take().unwrap();
+        let component: T = *component
+            .component
+            .downcast()
+            .unwrap_or_else(|_| unreachable!());
         Some(component)
     }
 
@@ -44,11 +48,11 @@ impl Resources {
         self.map.contains_key(&resource_type_id)
     }
 
-    pub async fn get<T: Component>(&mut self) -> Option<Ref<T>> {
+    pub async fn get<T: Component>(&self) -> Option<Ref<T>> {
         let component_type_id = TypeInfo::of::<T>();
 
-        let component = self.map.get_mut(&component_type_id)?;
-        let inner = component.await_loan().await;
+        let component = self.map.get(&component_type_id)?;
+        let inner = component.clone().read_owned().await;
 
         Some(Ref {
             inner,
@@ -56,11 +60,11 @@ impl Resources {
         })
     }
 
-    pub async fn get_mut<T: Component>(&mut self) -> Option<Mut<T>> {
+    pub async fn get_mut<T: Component>(&self) -> Option<Mut<T>> {
         let component_type_id = TypeInfo::of::<T>();
 
-        let component = self.map.get_mut(&component_type_id)?;
-        let inner = component.await_loan_mut().await;
+        let component = self.map.get(&component_type_id)?;
+        let inner = component.clone().write_owned().await;
 
         Some(Mut {
             inner,

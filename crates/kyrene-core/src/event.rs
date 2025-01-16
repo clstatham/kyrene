@@ -1,6 +1,6 @@
 use std::{any::TypeId, collections::VecDeque, marker::PhantomData, sync::Arc};
 
-use downcast_rs::DowncastSync;
+use downcast_rs::{impl_downcast, DowncastSync};
 use petgraph::prelude::*;
 
 use crate::{
@@ -9,12 +9,16 @@ use crate::{
     util::FxHashMap,
 };
 
-pub struct Event<T: DowncastSync = ()> {
+pub trait Event: DowncastSync {}
+impl_downcast!(Event);
+impl<T: DowncastSync> Event for T {}
+
+pub struct EventDispatcher<T: Event> {
     event: DynEvent,
     _marker: PhantomData<T>,
 }
 
-impl<T: DowncastSync> Clone for Event<T> {
+impl<T: Event> Clone for EventDispatcher<T> {
     fn clone(&self) -> Self {
         Self {
             event: self.event.clone(),
@@ -23,7 +27,7 @@ impl<T: DowncastSync> Clone for Event<T> {
     }
 }
 
-impl<T: DowncastSync> Event<T> {
+impl<T: Event> EventDispatcher<T> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
@@ -48,8 +52,8 @@ impl<T: DowncastSync> Event<T> {
         self.event.add_handler(handler);
     }
 
-    pub async fn fire(&self, world: WorldView, tag: T, await_all_handlers: bool) -> usize {
-        self.event.fire(world, tag, await_all_handlers).await
+    pub async fn fire(&self, world: WorldView, event: T, await_all_handlers: bool) -> usize {
+        self.event.fire::<T>(world, event, await_all_handlers).await
     }
 }
 
@@ -68,7 +72,7 @@ impl Clone for DynEvent {
 }
 
 impl DynEvent {
-    pub fn new<T: DowncastSync>() -> Self {
+    pub fn new<T: Event>() -> Self {
         Self {
             handlers: DynEventHandlers::new::<T>(),
             type_id: TypeId::of::<T>(),
@@ -77,7 +81,7 @@ impl DynEvent {
 
     pub fn add_handler<T, F, M>(&self, handler: F)
     where
-        T: DowncastSync,
+        T: Event,
         F: IntoHandlerConfig<M, Event = T>,
         M: 'static,
     {
@@ -85,10 +89,10 @@ impl DynEvent {
         self.handlers.insert(handler);
     }
 
-    pub async fn fire<T: DowncastSync>(
+    pub async fn fire<T: Event>(
         &self,
         world: WorldView,
-        tag: T,
+        event: T,
         await_all_handlers: bool,
     ) -> usize {
         assert_eq!(
@@ -96,7 +100,7 @@ impl DynEvent {
             self.type_id,
             "Event Type ID mismatch; Check if you're sending the right kind of payload!"
         );
-        let tag: Arc<dyn DowncastSync> = Arc::new(tag);
+        let event: Arc<dyn DowncastSync> = Arc::new(event);
 
         let handlers = self.handlers.handlers.read().await;
         let mut join_handles = Vec::new();
@@ -138,10 +142,10 @@ impl DynEvent {
                 let handler = handlers[node].clone();
                 let jh = tokio::spawn({
                     let world = world.clone();
-                    let tag = tag.clone();
+                    let event = event.clone();
                     async move {
                         if handler.meta.can_run(&world).await {
-                            handler.handler.run_dyn(world, tag).await;
+                            handler.handler.run_dyn(world, event).await;
                         }
                     }
                 });

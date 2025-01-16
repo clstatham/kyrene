@@ -8,7 +8,7 @@ use kyrene_core::{
     },
     world::{WorldShutdown, WorldStartup, WorldTick},
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::EnvFilter;
 use winit::{
     dpi::LogicalSize, event::WindowEvent, event_loop::ControlFlow, window::WindowAttributes,
 };
@@ -76,15 +76,29 @@ impl RunWindow for World {
             let view = view.clone();
             let window_settings = window_settings.clone();
             move || {
-                let sub = console_subscriber::ConsoleLayer::builder()
-                    .with_default_env()
-                    .spawn();
-                tracing_subscriber::registry()
-                    .with(sub)
-                    .with(
-                        tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()),
-                    )
-                    .init();
+                #[cfg(debug_assertions)]
+                {
+                    use tracing_subscriber::{
+                        layer::SubscriberExt, util::SubscriberInitExt, Layer,
+                    };
+                    let sub = console_subscriber::ConsoleLayer::builder()
+                        .with_default_env()
+                        .spawn();
+
+                    tracing_subscriber::registry()
+                        .with(sub)
+                        .with(
+                            tracing_subscriber::fmt::layer()
+                                .with_filter(EnvFilter::from_default_env()),
+                        )
+                        .init();
+                }
+                #[cfg(not(debug_assertions))]
+                {
+                    tracing_subscriber::fmt()
+                        .with_env_filter(EnvFilter::from_default_env())
+                        .init();
+                }
 
                 let runtime = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()

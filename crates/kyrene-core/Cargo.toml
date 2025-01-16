@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+kyrene-macro = { path = "../kyrene-macro" }
 downcast-rs = "2.0"
 tokio = { version = "1.43", features = ["full", "tracing"] }
 log = "0.4.22"

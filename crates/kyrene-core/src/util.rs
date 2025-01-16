@@ -28,7 +28,7 @@ impl Hash for TypeInfo {
 
 impl Debug for TypeInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self.type_name, f)
+        write!(f, "{}", self.type_name)
     }
 }
 

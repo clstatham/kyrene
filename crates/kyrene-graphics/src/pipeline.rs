@@ -2,6 +2,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use kyrene_core::{
     define_atomic_id,
+    handler::{Res, ResMut},
     plugin::Plugin,
     prelude::{Component, WorldView},
     util::{FxHashMap, TypeIdMap},
@@ -114,16 +115,17 @@ impl<T: CreateRenderPipeline> Plugin for RenderPipelinePlugin<T> {
 }
 
 pub async fn create_render_pipeline<T: CreateRenderPipeline>(
-    world: WorldView,
+    _world: WorldView,
     _event: Arc<InitRenderResources>,
+    mut pipelines: ResMut<RenderPipelines>,
+    device: Res<Device>,
+    mut bind_group_layouts: ResMut<BindGroupLayouts>,
 ) {
-    let mut pipelines = world.get_resource_mut::<RenderPipelines>().await.unwrap();
-
     if pipelines.get_id_for::<T>().is_some() {
         return;
     }
 
-    let device = world.get_resource::<Device>().await.unwrap();
-    let mut bind_group_layouts = world.get_resource_mut::<BindGroupLayouts>().await.unwrap();
+    tracing::trace!("create_render_pipeline::<{}>", std::any::type_name::<T>());
+
     pipelines.create_for::<T>(&device, &mut bind_group_layouts);
 }

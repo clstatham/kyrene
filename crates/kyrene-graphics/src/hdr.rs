@@ -176,6 +176,8 @@ pub async fn init_hdr_target(
         return;
     }
 
+    tracing::trace!("init_hdr_target");
+
     let hdr_target = HdrRenderTarget::create(&window_settings, &device);
     world.insert_resource(hdr_target).await;
 }
@@ -188,6 +190,7 @@ pub async fn render_hdr(
     pipelines: Res<RenderPipelines>,
     bind_group: Res<BindGroup<HdrRenderTarget>>,
 ) {
+    tracing::trace!("render_hdr");
     let pipeline = pipelines.get_pipeline_for::<HdrRenderPipeline>().unwrap();
     let Some(current_frame) = current_frame.inner.as_ref() else {
         return;

@@ -7,7 +7,6 @@ pub mod event;
 pub mod handler;
 pub mod intern;
 pub mod label;
-pub mod loan;
 pub mod lock;
 pub mod plugin;
 pub mod query;
@@ -29,7 +28,7 @@ pub mod prelude {
         block_on,
         component::{Component, Ref},
         entity::Entity,
-        event::Event,
+        event::EventDispatcher,
         handler::IntoHandlerConfig,
         lock::{MappedMutexGuard, Mutex, MutexGuard},
         plugin::Plugin,
