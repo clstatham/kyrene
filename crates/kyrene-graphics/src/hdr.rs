@@ -3,7 +3,7 @@ use std::sync::Arc;
 use kyrene_core::{
     handler::{Res, ResMut},
     plugin::Plugin,
-    prelude::{World, WorldView},
+    prelude::{World, WorldHandle},
 };
 
 use crate::{
@@ -50,7 +50,7 @@ impl HdrRenderTarget {
         Self { texture, sampler }
     }
 
-    pub fn color_target(&self) -> &Arc<wgpu::TextureView> {
+    pub fn color_target(&self) -> &wgpu::TextureView {
         &self.texture.view
     }
 
@@ -167,8 +167,8 @@ impl CreateRenderPipeline for HdrRenderPipeline {
 }
 
 pub async fn init_hdr_target(
-    world: WorldView,
     _event: Arc<InitRenderResources>,
+    world: WorldHandle,
     window_settings: Res<WindowSettings>,
     device: Res<Device>,
 ) {
@@ -183,7 +183,6 @@ pub async fn init_hdr_target(
 }
 
 pub async fn render_hdr(
-    _world: WorldView,
     _event: Arc<Render>,
     mut encoder: ResMut<ActiveCommandEncoder>,
     current_frame: Res<CurrentFrame>,

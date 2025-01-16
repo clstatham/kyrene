@@ -12,7 +12,7 @@ use crate::{
     plugin::Plugin,
     resource::Resources,
     util::TypeInfo,
-    world_view::WorldView,
+    world_handle::WorldHandle,
 };
 
 pub struct World {
@@ -144,8 +144,8 @@ impl World {
         self.events.add_handler(handler);
     }
 
-    pub fn into_world_view(self) -> WorldView {
-        WorldView {
+    pub fn into_world_handle(self) -> WorldHandle {
+        WorldHandle {
             world: Arc::new(RwLock::new(self)),
         }
     }
@@ -163,19 +163,19 @@ impl World {
             .build()
             .unwrap();
 
-        let view = self.into_world_view();
+        let world = self.into_world_handle();
 
         runtime.block_on(async move {
-            view.fire_event(WorldStartup, true).await;
+            world.fire_event(WorldStartup, true).await;
 
             // spawn WorldTick task
             let mut tick = 0;
             tokio::spawn({
-                let view = view.clone();
+                let world = world.clone();
                 async move {
                     loop {
                         tick += 1;
-                        view.fire_event(WorldTick { tick }, true).await;
+                        world.fire_event(WorldTick { tick }, true).await;
                     }
                 }
             });

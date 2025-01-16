@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use wgpu::util::DeviceExt;
 
 pub mod texture_format {
@@ -73,8 +71,8 @@ impl Texture {
 
 #[derive(Clone)]
 pub struct GpuTexture {
-    pub texture: Arc<wgpu::Texture>,
-    pub view: Arc<wgpu::TextureView>,
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
 }
 
 impl GpuTexture {
@@ -103,10 +101,7 @@ impl GpuTexture {
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        Self {
-            texture: Arc::new(texture),
-            view: Arc::new(view),
-        }
+        Self { texture, view }
     }
 
     pub fn from_image(
@@ -137,10 +132,7 @@ impl GpuTexture {
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        Some(Self {
-            texture: Arc::new(texture),
-            view: Arc::new(view),
-        })
+        Some(Self { texture, view })
     }
 
     pub fn format(&self) -> wgpu::TextureFormat {

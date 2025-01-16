@@ -4,7 +4,7 @@ use kyrene_core::{
     entity::Entity,
     handler::{Res, ResMut},
     plugin::Plugin,
-    prelude::{Component, StreamExt, WorldView},
+    prelude::{Component, StreamExt, WorldHandle},
     query::Query,
     util::TypeIdMap,
 };
@@ -65,8 +65,8 @@ impl<T: CreateBindGroup> Plugin for ComponentBindGroupPlugin<T> {
 }
 
 pub async fn create_component_bind_group<T: CreateBindGroup>(
-    world: WorldView,
     _event: Arc<InitRenderResources>,
+    world: WorldHandle,
     device: Res<Device>,
     mut layouts: ResMut<BindGroupLayouts>,
     item_query: Query<(Entity, &T)>,
@@ -99,8 +99,8 @@ impl<T: CreateBindGroup> Plugin for ResourceBindGroupPlugin<T> {
 }
 
 pub async fn create_resource_bind_group<T: CreateBindGroup>(
-    world: WorldView,
     _event: Arc<InitRenderResources>,
+    world: WorldHandle,
     item: Res<T>,
     device: Res<Device>,
     mut layouts: ResMut<BindGroupLayouts>,

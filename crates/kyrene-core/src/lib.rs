@@ -15,7 +15,7 @@ pub mod resource;
 pub mod util;
 pub mod bundle;
 pub mod world;
-pub mod world_view;
+pub mod world_handle;
 
 #[doc(hidden)]
 pub extern crate tokio;
@@ -34,7 +34,7 @@ pub mod prelude {
         plugin::Plugin,
         util::{FxHashMap, FxHashSet, TypeIdMap, TypeIdSet},
         world::{World, WorldTick},
-        world_view::WorldView,
+        world_handle::WorldHandle,
     };
     pub use futures::StreamExt;
     pub use std::sync::Arc;

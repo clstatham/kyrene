@@ -4,7 +4,7 @@ use kyrene_core::{
     plugin::Plugin,
     prelude::{
         tokio::{self, sync::mpsc},
-        World, WorldView,
+        World, WorldHandle,
     },
     world::{WorldShutdown, WorldStartup, WorldTick},
 };
@@ -68,12 +68,12 @@ impl RunWindow for World {
     fn run_window(self, window_settings: WindowSettings) {
         let event_loop = winit::event_loop::EventLoop::new().unwrap();
 
-        let view = self.into_world_view();
+        let world = self.into_world_handle();
 
         let (tx, rx) = winit_events_channel();
 
         std::thread::spawn({
-            let view = view.clone();
+            let world = world.clone();
             let window_settings = window_settings.clone();
             move || {
                 #[cfg(debug_assertions)]
@@ -106,18 +106,18 @@ impl RunWindow for World {
                     .unwrap();
 
                 runtime.block_on(async move {
-                    view.insert_resource(window_settings).await;
+                    world.insert_resource(window_settings).await;
 
-                    view.fire_event(WorldStartup, true).await;
+                    world.fire_event(WorldStartup, true).await;
 
                     // spawn WorldTick task
                     let mut tick = 0;
                     tokio::spawn({
-                        let view = view.clone();
+                        let world = world.clone();
                         async move {
                             loop {
                                 tick += 1;
-                                view.fire_event(WorldTick { tick }, true).await;
+                                world.fire_event(WorldTick { tick }, true).await;
                             }
                         }
                     });
@@ -129,37 +129,37 @@ impl RunWindow for World {
                     } = rx;
 
                     tokio::spawn({
-                        let view = view.clone();
+                        let world = world.clone();
                         async move {
                             loop {
                                 let Some(window_created) = window_created.recv().await else {
                                     return;
                                 };
-                                view.fire_event(window_created, true).await;
+                                world.fire_event(window_created, true).await;
                             }
                         }
                     });
 
                     tokio::spawn({
-                        let view = view.clone();
+                        let world = world.clone();
                         async move {
                             loop {
                                 let Some(winit_event) = winit_event.recv().await else {
                                     return;
                                 };
-                                view.fire_event(winit_event, true).await;
+                                world.fire_event(winit_event, true).await;
                             }
                         }
                     });
 
                     tokio::spawn({
-                        let view = view.clone();
+                        let world = world.clone();
                         async move {
                             loop {
                                 let Some(()) = exiting.recv().await else {
                                     return;
                                 };
-                                view.fire_event(WorldShutdown, true).await;
+                                world.fire_event(WorldShutdown, true).await;
                             }
                         }
                     });
@@ -195,7 +195,7 @@ impl Plugin for WinitPlugin {
     }
 }
 
-pub async fn winit_event(world: WorldView, event: Arc<WinitEvent>) {
+pub async fn winit_event(event: Arc<WinitEvent>, world: WorldHandle) {
     #[allow(clippy::single_match)]
     match &event.0 {
         winit::event::Event::WindowEvent {

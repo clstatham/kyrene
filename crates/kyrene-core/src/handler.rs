@@ -15,7 +15,7 @@ use crate::{
     lock::RwLock,
     prelude::{Component, Ref},
     util::{FxHashSet, TypeIdMap, TypeIdSet, TypeInfo},
-    world_view::WorldView,
+    world_handle::WorldHandle,
 };
 
 #[derive(Default, Debug, Clone)]
@@ -63,7 +63,7 @@ impl EventHandlerMeta {
         conflicts == 0
     }
 
-    pub async fn can_run(&self, world: &WorldView) -> bool {
+    pub async fn can_run(&self, world: &WorldHandle) -> bool {
         let mut can = true;
         for res in self.required_resources() {
             can &= world.has_resource_dyn(res).await;
@@ -87,7 +87,7 @@ pub(crate) trait EventHandler: Send + Sync {
     fn meta(&self) -> EventHandlerMeta {
         EventHandlerMeta::default()
     }
-    fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()>;
+    fn run_dyn(&self, world: WorldHandle, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()>;
 }
 
 pub trait EventHandlerFn<M>: Send + Sync + 'static {
@@ -96,7 +96,7 @@ pub trait EventHandlerFn<M>: Send + Sync + 'static {
 
     fn run(
         &self,
-        world: WorldView,
+        world: WorldHandle,
         event: Arc<Self::Event>,
         param: HandlerParamItem<Self::Param>,
     ) -> BoxFuture<'static, ()>;
@@ -114,9 +114,9 @@ pub trait HandlerParam: Send + Sync {
 
     fn meta() -> EventHandlerMeta;
 
-    fn fetch(world: WorldView) -> impl Future<Output = Self::Item> + Send;
+    fn fetch(world: WorldHandle) -> impl Future<Output = Self::Item> + Send;
 
-    fn can_run(world: WorldView) -> impl Future<Output = bool> + Send {
+    fn can_run(world: WorldHandle) -> impl Future<Output = bool> + Send {
         async move { true }
     }
 }
@@ -130,9 +130,9 @@ impl HandlerParam for () {
         EventHandlerMeta::default()
     }
 
-    async fn fetch(_world: WorldView) -> Self::Item {}
+    async fn fetch(_world: WorldHandle) -> Self::Item {}
 
-    async fn can_run(_world: WorldView) -> bool {
+    async fn can_run(_world: WorldHandle) -> bool {
         true
     }
 }
@@ -155,11 +155,11 @@ impl<T: Component> HandlerParam for Res<T> {
         EventHandlerMeta::default().res::<T>()
     }
 
-    async fn fetch(world: WorldView) -> Self::Item {
+    async fn fetch(world: WorldHandle) -> Self::Item {
         Res(world.get_resource::<T>().await.unwrap())
     }
 
-    async fn can_run(world: WorldView) -> bool {
+    async fn can_run(world: WorldHandle) -> bool {
         world.has_resource::<T>().await
     }
 }
@@ -171,11 +171,11 @@ impl<T: Component> HandlerParam for Option<Res<T>> {
         EventHandlerMeta::default().res::<T>()
     }
 
-    async fn fetch(world: WorldView) -> Self::Item {
+    async fn fetch(world: WorldHandle) -> Self::Item {
         Some(Res(world.get_resource::<T>().await?))
     }
 
-    async fn can_run(_world: WorldView) -> bool {
+    async fn can_run(_world: WorldHandle) -> bool {
         true
     }
 }
@@ -204,11 +204,11 @@ impl<T: Component> HandlerParam for ResMut<T> {
         EventHandlerMeta::default().res_mut::<T>()
     }
 
-    async fn fetch(world: WorldView) -> Self::Item {
+    async fn fetch(world: WorldHandle) -> Self::Item {
         ResMut(world.get_resource_mut::<T>().await.unwrap())
     }
 
-    async fn can_run(world: WorldView) -> bool {
+    async fn can_run(world: WorldHandle) -> bool {
         world.has_resource::<T>().await
     }
 }
@@ -220,11 +220,11 @@ impl<T: Component> HandlerParam for Option<ResMut<T>> {
         EventHandlerMeta::default().res_mut::<T>()
     }
 
-    async fn fetch(world: WorldView) -> Self::Item {
+    async fn fetch(world: WorldHandle) -> Self::Item {
         Some(ResMut(world.get_resource_mut::<T>().await?))
     }
 
-    async fn can_run(_world: WorldView) -> bool {
+    async fn can_run(_world: WorldHandle) -> bool {
         true
     }
 }
@@ -244,11 +244,11 @@ macro_rules! impl_handler_param_tuple {
                 meta
             }
 
-            async fn fetch(world: WorldView) -> Self::Item {
+            async fn fetch(world: WorldHandle) -> Self::Item {
                 tokio::join!($($param::fetch(world.clone()),)*)
             }
 
-            async fn can_run(world: WorldView) -> bool {
+            async fn can_run(world: WorldHandle) -> bool {
                 let mut can = true;
                     $(can &= $param::can_run(world.clone()).await;)*
                     can
@@ -298,7 +298,7 @@ impl<M, F> EventHandler for FunctionEventHandler<M, F>
 where
     F: EventHandlerFn<M>,
 {
-    fn run_dyn(&self, world: WorldView, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()> {
+    fn run_dyn(&self, world: WorldHandle, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()> {
         let event: Arc<<F as EventHandlerFn<M>>::Event> = event.into_any_arc().downcast().unwrap();
         let func = self.func.clone();
         async move {
@@ -324,9 +324,9 @@ where
     }
 }
 
-impl<Func, Fut, T> EventHandlerFn<fn(WorldView, Arc<T>)> for Func
+impl<Func, Fut, T> EventHandlerFn<fn(WorldHandle, Arc<T>)> for Func
 where
-    Func: Fn(WorldView, Arc<T>) -> Fut + Send + Sync + 'static,
+    Func: Fn(Arc<T>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + Sync + 'static,
     T: Event,
 {
@@ -335,21 +335,21 @@ where
 
     fn run(
         &self,
-        world: WorldView,
+        _world: WorldHandle,
         event: Arc<Self::Event>,
         _param: HandlerParamItem<Self::Param>,
     ) -> BoxFuture<'static, ()> {
-        (self)(world, event).boxed()
+        (self)(event).boxed()
     }
 }
 
 macro_rules! impl_fn_event_handler {
     ($($param:ident),*) => {
         #[allow(unused, non_snake_case)]
-        impl<Func, Fut, Event, $($param),*> EventHandlerFn<fn(WorldView, Arc<Event>, $($param,)*)> for Func
+        impl<Func, Fut, Event, $($param),*> EventHandlerFn<fn(Arc<Event>, $($param,)*)> for Func
         where
-            Func: Fn(WorldView, Arc<Event>, $($param),*) -> Fut + Send + Sync + 'static
-                + Fn(WorldView, Arc<Event>, $(HandlerParamItem<$param>),*) -> Fut + Send + Sync + 'static,
+            Func: Fn(Arc<Event>, $($param),*) -> Fut + Send + Sync + 'static
+                + Fn(Arc<Event>, $(HandlerParamItem<$param>),*) -> Fut + Send + Sync + 'static,
             $($param: HandlerParam + 'static),*,
             Fut: Future<Output = ()> + Send + Sync + 'static,
             Event: $crate::event::Event,
@@ -359,12 +359,12 @@ macro_rules! impl_fn_event_handler {
 
             fn run(
                 &self,
-                world: WorldView,
+                _world: WorldHandle,
                 event: Arc<Self::Event>,
                 param: HandlerParamItem<Self::Param>,
             ) -> BoxFuture<'static, ()> {
                 let ($($param),*) = param;
-                (self)(world, event, $($param),*).boxed()
+                (self)(event, $($param),*).boxed()
             }
         }
     };

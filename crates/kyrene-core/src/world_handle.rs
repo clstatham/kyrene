@@ -8,6 +8,7 @@ use crate::{
     component::{Component, Mut, Ref},
     entity::{Entity, EntitySet},
     event::{Event, EventDispatcher},
+    handler::{EventHandlerMeta, HandlerParam},
     lock::RwLock,
     query::{Query, Queryable},
     util::TypeInfo,
@@ -15,17 +16,17 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct WorldView {
+pub struct WorldHandle {
     pub(crate) world: Arc<RwLock<World>>,
 }
 
-impl WorldView {
+impl WorldHandle {
     pub fn from_inner(world: Arc<RwLock<World>>) -> Self {
         Self { world }
     }
 }
 
-impl WorldView {
+impl WorldHandle {
     pub async fn entity(&self) -> Entity {
         self.world.write().await.entity()
     }
@@ -120,5 +121,21 @@ impl WorldView {
     pub async fn fire_event<T: Event>(&self, event: T, await_all_handlers: bool) -> usize {
         let dis = { self.world.read().await.get_event::<T>().unwrap() };
         dis.fire(self.clone(), event, await_all_handlers).await
+    }
+}
+
+impl HandlerParam for WorldHandle {
+    type Item = WorldHandle;
+
+    fn meta() -> EventHandlerMeta {
+        EventHandlerMeta::default()
+    }
+
+    async fn fetch(world: WorldHandle) -> Self::Item {
+        world.clone()
+    }
+
+    async fn can_run(_world: WorldHandle) -> bool {
+        true
     }
 }

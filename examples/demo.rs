@@ -10,17 +10,17 @@ struct FooEvent {
     entity: Entity,
 }
 
-async fn foo_event_handler(world: WorldView, event: Arc<FooEvent>) {
+async fn foo_event_handler(event: Arc<FooEvent>, world: WorldHandle) {
     let mut counter = world.get_mut::<i32>(event.entity).await.unwrap();
     *counter += 1;
     println!("Handler 1: {} -> {}", *counter - 1, *counter);
 }
 
-async fn foo_event_handler_2(_world: WorldView, _event: Arc<FooEvent>) {
+async fn foo_event_handler_2(_event: Arc<FooEvent>) {
     println!("Handler 2");
 }
 
-async fn startup(world: WorldView, _event: Arc<WorldStartup>) {
+async fn startup(_event: Arc<WorldStartup>, world: WorldHandle) {
     let entity = world.spawn((0i32, 0.0f32)).await;
 
     let _entity2 = world.spawn((0i32,)).await;

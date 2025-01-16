@@ -5,7 +5,7 @@ use petgraph::prelude::*;
 
 use crate::{
     handler::{DynEventHandlers, IntoHandlerConfig},
-    prelude::WorldView,
+    prelude::WorldHandle,
     util::FxHashMap,
 };
 
@@ -52,7 +52,7 @@ impl<T: Event> EventDispatcher<T> {
         self.event.add_handler(handler);
     }
 
-    pub async fn fire(&self, world: WorldView, event: T, await_all_handlers: bool) -> usize {
+    pub async fn fire(&self, world: WorldHandle, event: T, await_all_handlers: bool) -> usize {
         self.event.fire::<T>(world, event, await_all_handlers).await
     }
 }
@@ -91,7 +91,7 @@ impl DynEvent {
 
     pub async fn fire<T: Event>(
         &self,
-        world: WorldView,
+        world: WorldHandle,
         event: T,
         await_all_handlers: bool,
     ) -> usize {

@@ -4,7 +4,7 @@ use kyrene_core::{
     define_atomic_id,
     handler::{Res, ResMut},
     plugin::Plugin,
-    prelude::{Component, WorldView},
+    prelude::Component,
     util::{FxHashMap, TypeIdMap},
 };
 
@@ -115,7 +115,6 @@ impl<T: CreateRenderPipeline> Plugin for RenderPipelinePlugin<T> {
 }
 
 pub async fn create_render_pipeline<T: CreateRenderPipeline>(
-    _world: WorldView,
     _event: Arc<InitRenderResources>,
     mut pipelines: ResMut<RenderPipelines>,
     device: Res<Device>,

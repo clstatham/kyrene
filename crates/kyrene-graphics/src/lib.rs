@@ -10,7 +10,7 @@ use kyrene_core::{
     entity::Entity,
     handler::{Res, ResMut},
     plugin::Plugin,
-    prelude::WorldView,
+    prelude::WorldHandle,
     world::World,
 };
 use pipeline::RenderPipelines;
@@ -165,7 +165,7 @@ impl CommandBuffers {
     }
 }
 
-async fn create_surface(world: WorldView, event: Arc<WindowCreated>) {
+async fn create_surface(event: Arc<WindowCreated>, world: WorldHandle) {
     let WindowCreated {
         window,
         surface,
@@ -246,7 +246,7 @@ impl Plugin for WgpuPlugin {
 
 pub struct BeginRender;
 
-async fn redraw_requested(world: WorldView, _event: Arc<RedrawRequested>) {
+async fn redraw_requested(_event: Arc<RedrawRequested>, world: WorldHandle) {
     if !world.has_resource::<Device>().await {
         return;
     }
@@ -257,7 +257,7 @@ async fn redraw_requested(world: WorldView, _event: Arc<RedrawRequested>) {
     world.fire_event(PostRender, true).await;
 }
 
-pub async fn pre_render(world: WorldView, _event: Arc<PreRender>) {
+pub async fn pre_render(_event: Arc<PreRender>, world: WorldHandle) {
     tracing::trace!("pre_render");
 
     world.fire_event(BeginRender, true).await;
@@ -268,15 +268,15 @@ pub async fn pre_render(world: WorldView, _event: Arc<PreRender>) {
         .await;
 }
 
-pub async fn post_render(world: WorldView, _event: Arc<PostRender>) {
+pub async fn post_render(_event: Arc<PostRender>, world: WorldHandle) {
     tracing::trace!("post_render");
 
     world.fire_event(EndRender, true).await;
 }
 
 pub async fn begin_render(
-    world: WorldView,
     _event: Arc<BeginRender>,
+    world: WorldHandle,
     mut current_frame: ResMut<CurrentFrame>,
     surface: Res<WindowSurface>,
     device: Res<Device>,
@@ -357,8 +357,8 @@ pub async fn begin_render(
 pub struct EndRender;
 
 pub async fn end_render(
-    world: WorldView,
     _event: Arc<EndRender>,
+    world: WorldHandle,
     mut command_buffers: ResMut<CommandBuffers>,
     mut current_frame: ResMut<CurrentFrame>,
     queue: Res<Queue>,
