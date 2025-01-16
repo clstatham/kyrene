@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use kyrene_core::{
+    event::Event,
     handler::{Res, ResMut},
     plugin::Plugin,
     prelude::{World, WorldHandle},
@@ -167,7 +168,7 @@ impl CreateRenderPipeline for HdrRenderPipeline {
 }
 
 pub async fn init_hdr_target(
-    _event: Arc<InitRenderResources>,
+    _event: Event<InitRenderResources>,
     world: WorldHandle,
     window_settings: Res<WindowSettings>,
     device: Res<Device>,
@@ -183,7 +184,7 @@ pub async fn init_hdr_target(
 }
 
 pub async fn render_hdr(
-    _event: Arc<Render>,
+    _event: Event<Render>,
     mut encoder: ResMut<ActiveCommandEncoder>,
     current_frame: Res<CurrentFrame>,
     pipelines: Res<RenderPipelines>,

@@ -30,7 +30,7 @@ pub mod prelude {
         block_on,
         component::{Component, Ref},
         entity::Entity,
-        event::EventDispatcher,
+        event::{Event, EventDispatcher},
         handler::IntoHandlerConfig,
         lock::{MappedMutexGuard, Mutex, MutexGuard},
         plugin::Plugin,

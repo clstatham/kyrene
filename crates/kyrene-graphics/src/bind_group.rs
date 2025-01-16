@@ -1,7 +1,8 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
 
 use kyrene_core::{
     entity::Entity,
+    event::Event,
     handler::{Res, ResMut},
     plugin::Plugin,
     prelude::{Component, StreamExt, WorldHandle},
@@ -65,7 +66,7 @@ impl<T: CreateBindGroup> Plugin for ComponentBindGroupPlugin<T> {
 }
 
 pub async fn create_component_bind_group<T: CreateBindGroup>(
-    _event: Arc<InitRenderResources>,
+    _event: Event<InitRenderResources>,
     world: WorldHandle,
     device: Res<Device>,
     mut layouts: ResMut<BindGroupLayouts>,
@@ -99,7 +100,7 @@ impl<T: CreateBindGroup> Plugin for ResourceBindGroupPlugin<T> {
 }
 
 pub async fn create_resource_bind_group<T: CreateBindGroup>(
-    _event: Arc<InitRenderResources>,
+    _event: Event<InitRenderResources>,
     world: WorldHandle,
     item: Res<T>,
     device: Res<Device>,

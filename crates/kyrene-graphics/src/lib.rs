@@ -8,6 +8,7 @@ use camera::{insert_view_target, GpuCamera, InsertViewTarget, ViewTarget};
 use hdr::HdrPlugin;
 use kyrene_core::{
     entity::Entity,
+    event::Event,
     handler::{Res, ResMut},
     plugin::Plugin,
     prelude::WorldHandle,
@@ -165,14 +166,14 @@ impl CommandBuffers {
     }
 }
 
-async fn create_surface(event: Arc<WindowCreated>, world: WorldHandle) {
+async fn create_surface(event: Event<WindowCreated>, world: WorldHandle) {
     let WindowCreated {
         window,
         surface,
         adapter,
         device,
         queue,
-    } = &*event;
+    } = event.event();
 
     let window = window.clone();
     let surface = surface.clone();
@@ -246,7 +247,7 @@ impl Plugin for WgpuPlugin {
 
 pub struct BeginRender;
 
-async fn redraw_requested(_event: Arc<RedrawRequested>, world: WorldHandle) {
+async fn redraw_requested(_event: Event<RedrawRequested>, world: WorldHandle) {
     if !world.has_resource::<Device>().await {
         return;
     }
@@ -257,7 +258,7 @@ async fn redraw_requested(_event: Arc<RedrawRequested>, world: WorldHandle) {
     world.fire_event(PostRender, true).await;
 }
 
-pub async fn pre_render(_event: Arc<PreRender>, world: WorldHandle) {
+pub async fn pre_render(_event: Event<PreRender>, world: WorldHandle) {
     tracing::trace!("pre_render");
 
     world.fire_event(BeginRender, true).await;
@@ -268,14 +269,14 @@ pub async fn pre_render(_event: Arc<PreRender>, world: WorldHandle) {
         .await;
 }
 
-pub async fn post_render(_event: Arc<PostRender>, world: WorldHandle) {
+pub async fn post_render(_event: Event<PostRender>, world: WorldHandle) {
     tracing::trace!("post_render");
 
     world.fire_event(EndRender, true).await;
 }
 
 pub async fn begin_render(
-    _event: Arc<BeginRender>,
+    _event: Event<BeginRender>,
     world: WorldHandle,
     mut current_frame: ResMut<CurrentFrame>,
     surface: Res<WindowSurface>,
@@ -357,7 +358,7 @@ pub async fn begin_render(
 pub struct EndRender;
 
 pub async fn end_render(
-    _event: Arc<EndRender>,
+    _event: Event<EndRender>,
     world: WorldHandle,
     mut command_buffers: ResMut<CommandBuffers>,
     mut current_frame: ResMut<CurrentFrame>,

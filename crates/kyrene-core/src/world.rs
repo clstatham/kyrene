@@ -6,7 +6,7 @@ use crate::{
     bundle::Bundle,
     component::{Component, Components, Mut, Ref},
     entity::{Entities, Entity},
-    event::{Event, EventDispatcher},
+    event::EventDispatcher,
     handler::{Events, IntoHandlerConfig},
     lock::RwLock,
     plugin::Plugin,
@@ -122,22 +122,22 @@ impl World {
     }
 
     #[track_caller]
-    pub fn add_event<T: Event>(&mut self) -> EventDispatcher<T> {
+    pub fn add_event<T: Component>(&mut self) -> EventDispatcher<T> {
         self.events.add_event::<T>()
     }
 
-    pub fn get_event<T: Event>(&self) -> Option<EventDispatcher<T>> {
+    pub fn get_event<T: Component>(&self) -> Option<EventDispatcher<T>> {
         self.events.get_event::<T>()
     }
 
-    pub fn has_event<T: Event>(&self) -> bool {
+    pub fn has_event<T: Component>(&self) -> bool {
         self.events.has_event::<T>()
     }
 
     #[track_caller]
     pub fn add_event_handler<T, F, M>(&mut self, handler: F)
     where
-        T: Event,
+        T: Component,
         F: IntoHandlerConfig<M, Event = T> + 'static,
         M: 'static,
     {

@@ -1444,6 +1444,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kyrene-3d"
+version = "0.1.0"
+dependencies = [
+ "kyrene-core",
+ "kyrene-graphics",
+]
+
+[[package]]
 name = "kyrene-core"
 version = "0.1.0"
 dependencies = [

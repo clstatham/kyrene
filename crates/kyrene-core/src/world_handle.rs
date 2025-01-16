@@ -7,7 +7,7 @@ use crate::{
     bundle::Bundle,
     component::{Component, Mut, Ref},
     entity::{Entity, EntitySet},
-    event::{Event, EventDispatcher},
+    event::EventDispatcher,
     handler::{EventHandlerMeta, HandlerParam},
     lock::RwLock,
     query::{Query, Queryable},
@@ -106,19 +106,19 @@ impl WorldHandle {
         self.world.read().await.get_resource_mut::<T>().await
     }
 
-    pub async fn add_event<T: Event>(&self) -> EventDispatcher<T> {
+    pub async fn add_event<T: Component>(&self) -> EventDispatcher<T> {
         self.world.write().await.add_event::<T>()
     }
 
-    pub async fn get_event<T: Event>(&self) -> Option<EventDispatcher<T>> {
+    pub async fn get_event<T: Component>(&self) -> Option<EventDispatcher<T>> {
         self.world.read().await.get_event::<T>()
     }
 
-    pub async fn has_event<T: Event>(&self) -> bool {
+    pub async fn has_event<T: Component>(&self) -> bool {
         self.world.read().await.has_event::<T>()
     }
 
-    pub async fn fire_event<T: Event>(&self, event: T, await_all_handlers: bool) -> usize {
+    pub async fn fire_event<T: Component>(&self, event: T, await_all_handlers: bool) -> usize {
         let dis = { self.world.read().await.get_event::<T>().unwrap() };
         dis.fire(self.clone(), event, await_all_handlers).await
     }

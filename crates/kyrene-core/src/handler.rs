@@ -11,7 +11,7 @@ use petgraph::prelude::*;
 
 use crate::{
     component::Mut,
-    event::{DynEvent, Event, EventDispatcher},
+    event::{DynEvent, DynEventDispatcher, Event, EventDispatcher},
     lock::RwLock,
     prelude::{Component, Ref},
     util::{FxHashSet, TypeIdMap, TypeIdSet, TypeInfo},
@@ -87,7 +87,7 @@ pub(crate) trait EventHandler: Send + Sync {
     fn meta(&self) -> EventHandlerMeta {
         EventHandlerMeta::default()
     }
-    fn run_dyn(&self, world: WorldHandle, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()>;
+    fn run_dyn(&self, world: WorldHandle, event: DynEvent) -> BoxFuture<'static, ()>;
 }
 
 pub trait EventHandlerFn<M>: Send + Sync + 'static {
@@ -97,7 +97,7 @@ pub trait EventHandlerFn<M>: Send + Sync + 'static {
     fn run(
         &self,
         world: WorldHandle,
-        event: Arc<Self::Event>,
+        event: Event<Self::Event>,
         param: HandlerParamItem<Self::Param>,
     ) -> BoxFuture<'static, ()>;
 }
@@ -298,8 +298,8 @@ impl<M, F> EventHandler for FunctionEventHandler<M, F>
 where
     F: EventHandlerFn<M>,
 {
-    fn run_dyn(&self, world: WorldHandle, event: Arc<dyn DowncastSync>) -> BoxFuture<'static, ()> {
-        let event: Arc<<F as EventHandlerFn<M>>::Event> = event.into_any_arc().downcast().unwrap();
+    fn run_dyn(&self, world: WorldHandle, event: DynEvent) -> BoxFuture<'static, ()> {
+        let event: Event<<F as EventHandlerFn<M>>::Event> = Event::from_dyn_event(event);
         let func = self.func.clone();
         async move {
             if <F::Param>::can_run(world.clone()).await {
@@ -324,11 +324,11 @@ where
     }
 }
 
-impl<Func, Fut, T> EventHandlerFn<fn(WorldHandle, Arc<T>)> for Func
+impl<Func, Fut, T> EventHandlerFn<fn(WorldHandle, Event<T>)> for Func
 where
-    Func: Fn(Arc<T>) -> Fut + Send + Sync + 'static,
+    Func: Fn(Event<T>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + Sync + 'static,
-    T: Event,
+    T: Component,
 {
     type Event = T;
     type Param = ();
@@ -336,7 +336,7 @@ where
     fn run(
         &self,
         _world: WorldHandle,
-        event: Arc<Self::Event>,
+        event: Event<Self::Event>,
         _param: HandlerParamItem<Self::Param>,
     ) -> BoxFuture<'static, ()> {
         (self)(event).boxed()
@@ -348,11 +348,11 @@ macro_rules! impl_fn_event_handler {
         #[allow(unused, non_snake_case)]
         impl<Func, Fut, Event, $($param),*> EventHandlerFn<fn(Arc<Event>, $($param,)*)> for Func
         where
-            Func: Fn(Arc<Event>, $($param),*) -> Fut + Send + Sync + 'static
-                + Fn(Arc<Event>, $(HandlerParamItem<$param>),*) -> Fut + Send + Sync + 'static,
+            Func: Fn($crate::event::Event<Event>, $($param),*) -> Fut + Send + Sync + 'static
+                + Fn($crate::event::Event<Event>, $(HandlerParamItem<$param>),*) -> Fut + Send + Sync + 'static,
             $($param: HandlerParam + 'static),*,
             Fut: Future<Output = ()> + Send + Sync + 'static,
-            Event: $crate::event::Event,
+            Event: $crate::component::Component,
         {
             type Event = Event;
             type Param = ($($param),*);
@@ -360,7 +360,7 @@ macro_rules! impl_fn_event_handler {
             fn run(
                 &self,
                 _world: WorldHandle,
-                event: Arc<Self::Event>,
+                event: $crate::event::Event<Self::Event>,
                 param: HandlerParamItem<Self::Param>,
             ) -> BoxFuture<'static, ()> {
                 let ($($param),*) = param;
@@ -401,7 +401,7 @@ pub(crate) struct DynEventHandlers {
 }
 
 impl DynEventHandlers {
-    pub fn new<T: Event>() -> Self {
+    pub fn new<T: Component>() -> Self {
         Self {
             event_type_id: TypeInfo::of::<T>(),
             handlers: Arc::new(RwLock::new(StableDiGraph::new())),
@@ -411,7 +411,7 @@ impl DynEventHandlers {
 
     pub fn insert<T, F, M>(&self, handler: F) -> NodeIndex
     where
-        T: Event,
+        T: Component,
         F: IntoHandlerConfig<M, Event = T>,
         M: 'static,
     {
@@ -450,7 +450,7 @@ pub enum HandlerAddOption {
     Before(TypeInfo),
 }
 
-pub struct HandlerConfig<T: Event> {
+pub struct HandlerConfig<T: Component> {
     handler_type_id: TypeInfo,
     handler: Arc<dyn EventHandler>,
     meta: Arc<EventHandlerMeta>,
@@ -458,7 +458,7 @@ pub struct HandlerConfig<T: Event> {
     _marker: PhantomData<T>,
 }
 
-impl<T: Event> HandlerConfig<T> {
+impl<T: Component> HandlerConfig<T> {
     pub fn new<F, M>(handler: F) -> Self
     where
         F: EventHandlerFn<M, Event = T>,
@@ -496,7 +496,7 @@ impl<T: Event> HandlerConfig<T> {
 }
 
 pub trait IntoHandlerConfig<M>: Sized + 'static {
-    type Event: Event;
+    type Event: Component;
 
     fn finish(self) -> HandlerConfig<Self::Event>;
 
@@ -519,7 +519,7 @@ pub trait IntoHandlerConfig<M>: Sized + 'static {
 
 impl<T, F, M> IntoHandlerConfig<M> for F
 where
-    T: Event,
+    T: Component,
     F: EventHandlerFn<M, Event = T>,
     M: 'static,
 {
@@ -530,7 +530,7 @@ where
     }
 }
 
-impl<T: Event> IntoHandlerConfig<()> for HandlerConfig<T> {
+impl<T: Component> IntoHandlerConfig<()> for HandlerConfig<T> {
     type Event = T;
 
     fn finish(self) -> HandlerConfig<Self::Event> {
@@ -540,31 +540,31 @@ impl<T: Event> IntoHandlerConfig<()> for HandlerConfig<T> {
 
 #[derive(Default, Clone)]
 pub(crate) struct Events {
-    pub entries: TypeIdMap<DynEvent>,
+    pub entries: TypeIdMap<DynEventDispatcher>,
 }
 
 impl Events {
-    pub fn add_event<T: Event>(&mut self) -> EventDispatcher<T> {
+    pub fn add_event<T: Component>(&mut self) -> EventDispatcher<T> {
         if let Some(event) = self.get_event::<T>() {
             return event;
         }
-        let event = DynEvent::new::<T>();
+        let event = DynEventDispatcher::new::<T>();
         self.entries.insert_for::<T>(event.clone());
         EventDispatcher::from_dyn_event(event)
     }
 
-    pub fn get_event<T: Event>(&self) -> Option<EventDispatcher<T>> {
+    pub fn get_event<T: Component>(&self) -> Option<EventDispatcher<T>> {
         let event = self.entries.get_for::<T>()?.clone();
         Some(EventDispatcher::from_dyn_event(event))
     }
 
-    pub fn has_event<T: Event>(&self) -> bool {
+    pub fn has_event<T: Component>(&self) -> bool {
         self.entries.contains_type::<T>()
     }
 
     pub fn add_handler<T, F, M>(&mut self, handler: F)
     where
-        T: Event,
+        T: Component,
         F: IntoHandlerConfig<M, Event = T>,
         M: 'static,
     {

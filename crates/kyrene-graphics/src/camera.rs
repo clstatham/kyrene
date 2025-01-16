@@ -1,7 +1,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use encase::ShaderType;
-use kyrene_core::{entity::Entity, handler::Res, prelude::WorldHandle};
+use kyrene_core::{entity::Entity, event::Event, handler::Res, prelude::WorldHandle};
 
 use crate::CurrentFrame;
 
@@ -141,7 +141,7 @@ pub struct InsertViewTarget {
 }
 
 pub async fn insert_view_target(
-    event: Arc<InsertViewTarget>,
+    event: Event<InsertViewTarget>,
     world: WorldHandle,
     current_frame: Res<CurrentFrame>,
 ) {

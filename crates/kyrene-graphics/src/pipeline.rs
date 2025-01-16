@@ -1,7 +1,8 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
 
 use kyrene_core::{
     define_atomic_id,
+    event::Event,
     handler::{Res, ResMut},
     plugin::Plugin,
     prelude::Component,
@@ -115,7 +116,7 @@ impl<T: CreateRenderPipeline> Plugin for RenderPipelinePlugin<T> {
 }
 
 pub async fn create_render_pipeline<T: CreateRenderPipeline>(
-    _event: Arc<InitRenderResources>,
+    _event: Event<InitRenderResources>,
     mut pipelines: ResMut<RenderPipelines>,
     device: Res<Device>,
     mut bind_group_layouts: ResMut<BindGroupLayouts>,

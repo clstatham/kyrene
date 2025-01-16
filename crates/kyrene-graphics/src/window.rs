@@ -1,6 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use kyrene_core::{
+    event::Event,
     plugin::Plugin,
     prelude::{
         tokio::{self, sync::mpsc},
@@ -195,7 +196,7 @@ impl Plugin for WinitPlugin {
     }
 }
 
-pub async fn winit_event(event: Arc<WinitEvent>, world: WorldHandle) {
+pub async fn winit_event(event: Event<WinitEvent>, world: WorldHandle) {
     #[allow(clippy::single_match)]
     match &event.0 {
         winit::event::Event::WindowEvent {
