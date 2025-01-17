@@ -143,8 +143,13 @@ macro_rules! impl_zip_stream_tuple {
                 $(
                     let $name = match $name.poll_next_unpin(cx) {
                         Poll::Ready(Some(elt)) => elt,
-                        Poll::Ready(None) => return Poll::Ready(None),
-                        Poll::Pending => return Poll::Pending,
+                        Poll::Ready(None) => {
+                            return Poll::Ready(None);
+                        },
+                        Poll::Pending => {
+                            cx.waker().wake_by_ref();
+                            return Poll::Pending;
+                        },
                     };
                 )*
 
@@ -231,16 +236,19 @@ impl<Q: Queryable> Query<Q> {
 
 impl<Q: Queryable> HandlerParam for Query<Q> {
     type Item = Query<Q>;
+    type State = ();
 
     fn meta() -> EventHandlerMeta {
         EventHandlerMeta::default()
     }
 
-    async fn fetch(world: WorldHandle) -> Self::Item {
+    async fn init_state(_world: WorldHandle) -> Self::State {}
+
+    async fn fetch(world: WorldHandle, _: &mut ()) -> Self::Item {
         world.query::<Q>().await
     }
 
-    async fn can_run(_world: WorldHandle) -> bool {
+    async fn can_run(_world: WorldHandle, _: &()) -> bool {
         true
     }
 }

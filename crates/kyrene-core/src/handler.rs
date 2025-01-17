@@ -12,10 +12,10 @@ use petgraph::prelude::*;
 use crate::{
     component::Mut,
     event::{DynEvent, DynEventDispatcher, Event, EventDispatcher},
-    lock::RwLock,
+    lock::{Read, RwLock, Write},
     prelude::{Component, Ref},
     util::{FxHashSet, TypeIdMap, TypeIdSet, TypeInfo},
-    world_handle::WorldHandle,
+    world_handle::{FromWorldHandle, WorldHandle},
 };
 
 #[derive(Default, Debug, Clone)]
@@ -26,12 +26,12 @@ pub struct EventHandlerMeta {
 
 impl EventHandlerMeta {
     pub fn res<T: Component>(mut self) -> Self {
-        self.resources_read.insert(TypeInfo::of::<T>());
+        self.resources_read.insert_for::<T>();
         self
     }
 
     pub fn res_mut<T: Component>(mut self) -> Self {
-        self.resources_written.insert(TypeInfo::of::<T>());
+        self.resources_written.insert_for::<T>();
         self
     }
 
@@ -87,12 +87,19 @@ pub(crate) trait EventHandler: Send + Sync {
     fn meta(&self) -> EventHandlerMeta {
         EventHandlerMeta::default()
     }
+
+    fn init(&self, world: WorldHandle) -> BoxFuture<'static, ()>;
+
+    fn is_initialized(&self) -> BoxFuture<'static, bool>;
+
     fn run_dyn(&self, world: WorldHandle, event: DynEvent) -> BoxFuture<'static, ()>;
 }
 
 pub trait EventHandlerFn<M>: Send + Sync + 'static {
     type Event: DowncastSync;
     type Param: HandlerParam + 'static;
+
+    fn init_state(&self, world: WorldHandle) -> BoxFuture<'static, HandlerParamState<Self::Param>>;
 
     fn run(
         &self,
@@ -111,28 +118,38 @@ pub(crate) trait IntoEventHandler<M>: Send + Sync {
 #[allow(unused)]
 pub trait HandlerParam: Send + Sync {
     type Item: HandlerParam;
+    type State: Send + Sync + 'static;
 
     fn meta() -> EventHandlerMeta;
 
-    fn fetch(world: WorldHandle) -> impl Future<Output = Self::Item> + Send;
+    fn init_state(world: WorldHandle) -> impl Future<Output = Self::State> + Send;
 
-    fn can_run(world: WorldHandle) -> impl Future<Output = bool> + Send {
+    fn fetch(
+        world: WorldHandle,
+        state: &mut Self::State,
+    ) -> impl Future<Output = Self::Item> + Send;
+
+    fn can_run(world: WorldHandle, state: &Self::State) -> impl Future<Output = bool> + Send {
         async move { true }
     }
 }
 
 pub type HandlerParamItem<T> = <T as HandlerParam>::Item;
+pub type HandlerParamState<T> = <T as HandlerParam>::State;
 
 impl HandlerParam for () {
     type Item = ();
+    type State = ();
 
     fn meta() -> EventHandlerMeta {
         EventHandlerMeta::default()
     }
 
-    async fn fetch(_world: WorldHandle) -> Self::Item {}
+    async fn init_state(_world: WorldHandle) -> Self::State {}
 
-    async fn can_run(_world: WorldHandle) -> bool {
+    async fn fetch(_world: WorldHandle, _: &mut ()) -> Self::Item {}
+
+    async fn can_run(_world: WorldHandle, _: &()) -> bool {
         true
     }
 }
@@ -150,32 +167,38 @@ impl<T: Component> Deref for Res<T> {
 
 impl<T: Component> HandlerParam for Res<T> {
     type Item = Res<T>;
+    type State = ();
 
     fn meta() -> EventHandlerMeta {
         EventHandlerMeta::default().res::<T>()
     }
 
-    async fn fetch(world: WorldHandle) -> Self::Item {
+    async fn init_state(_world: WorldHandle) -> Self::State {}
+
+    async fn fetch(world: WorldHandle, _: &mut ()) -> Self::Item {
         Res(world.get_resource::<T>().await.unwrap())
     }
 
-    async fn can_run(world: WorldHandle) -> bool {
+    async fn can_run(world: WorldHandle, _: &()) -> bool {
         world.has_resource::<T>().await
     }
 }
 
 impl<T: Component> HandlerParam for Option<Res<T>> {
     type Item = Option<Res<T>>;
+    type State = ();
 
     fn meta() -> EventHandlerMeta {
         EventHandlerMeta::default().res::<T>()
     }
 
-    async fn fetch(world: WorldHandle) -> Self::Item {
+    async fn init_state(_world: WorldHandle) -> Self::State {}
+
+    async fn fetch(world: WorldHandle, _: &mut ()) -> Self::Item {
         Some(Res(world.get_resource::<T>().await?))
     }
 
-    async fn can_run(_world: WorldHandle) -> bool {
+    async fn can_run(_world: WorldHandle, _: &()) -> bool {
         true
     }
 }
@@ -199,40 +222,87 @@ impl<T: Component> DerefMut for ResMut<T> {
 
 impl<T: Component> HandlerParam for ResMut<T> {
     type Item = ResMut<T>;
+    type State = ();
 
     fn meta() -> EventHandlerMeta {
         EventHandlerMeta::default().res_mut::<T>()
     }
 
-    async fn fetch(world: WorldHandle) -> Self::Item {
+    async fn init_state(_world: WorldHandle) -> Self::State {}
+
+    async fn fetch(world: WorldHandle, _: &mut ()) -> Self::Item {
         ResMut(world.get_resource_mut::<T>().await.unwrap())
     }
 
-    async fn can_run(world: WorldHandle) -> bool {
+    async fn can_run(world: WorldHandle, _: &()) -> bool {
         world.has_resource::<T>().await
     }
 }
 
 impl<T: Component> HandlerParam for Option<ResMut<T>> {
     type Item = Option<ResMut<T>>;
+    type State = ();
 
     fn meta() -> EventHandlerMeta {
         EventHandlerMeta::default().res_mut::<T>()
     }
 
-    async fn fetch(world: WorldHandle) -> Self::Item {
+    async fn init_state(_world: WorldHandle) -> Self::State {}
+
+    async fn fetch(world: WorldHandle, _: &mut ()) -> Self::Item {
         Some(ResMut(world.get_resource_mut::<T>().await?))
     }
 
-    async fn can_run(_world: WorldHandle) -> bool {
+    async fn can_run(_world: WorldHandle, _: &()) -> bool {
+        true
+    }
+}
+
+pub struct Local<T: Component + FromWorldHandle>(Arc<RwLock<T>>);
+
+impl<T: Component + FromWorldHandle> Clone for Local<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T: Component + FromWorldHandle> Local<T> {
+    pub async fn get(&self) -> Read<T> {
+        self.0.clone().read_owned().await
+    }
+
+    pub async fn get_mut(&self) -> Write<T> {
+        self.0.clone().write_owned().await
+    }
+}
+
+impl<T: Component + FromWorldHandle> HandlerParam for Local<T> {
+    type Item = Local<T>;
+    type State = Local<T>;
+
+    fn meta() -> EventHandlerMeta {
+        EventHandlerMeta::default()
+    }
+
+    async fn init_state(world: WorldHandle) -> Self::State {
+        Self(Arc::new(RwLock::new(T::from_world_handle(&world).await)))
+    }
+
+    async fn fetch(_world: WorldHandle, state: &mut Self::State) -> Self::Item {
+        state.clone()
+    }
+
+    async fn can_run(_world: WorldHandle, _state: &Self::State) -> bool {
         true
     }
 }
 
 macro_rules! impl_handler_param_tuple {
     ($($param:ident),*) => {
+        #[allow(non_snake_case)]
         impl<$($param: HandlerParam),*> HandlerParam for ($($param,)*) {
             type Item = ($($param::Item,)*);
+            type State = ($($param::State,)*);
 
             fn meta() -> EventHandlerMeta {
                 let mut meta = EventHandlerMeta::default();
@@ -244,14 +314,20 @@ macro_rules! impl_handler_param_tuple {
                 meta
             }
 
-            async fn fetch(world: WorldHandle) -> Self::Item {
-                tokio::join!($($param::fetch(world.clone()),)*)
+            async fn init_state(world: WorldHandle) -> Self::State {
+                tokio::join!($($param::init_state(world.clone()),)*)
             }
 
-            async fn can_run(world: WorldHandle) -> bool {
+            async fn fetch(world: WorldHandle, state: &mut Self::State) -> Self::Item {
+                let ($($param,)*) = state;
+                tokio::join!($($param::fetch(world.clone(), $param),)*)
+            }
+
+            async fn can_run(world: WorldHandle, state: &Self::State) -> bool {
                 let mut can = true;
-                    $(can &= $param::can_run(world.clone()).await;)*
-                    can
+                let ($($param,)*) = state;
+                $(can &= $param::can_run(world.clone(), $param).await;)*
+                can
             }
         }
     };
@@ -279,6 +355,7 @@ where
     F: EventHandlerFn<M>,
 {
     func: Arc<F>,
+    state: Arc<RwLock<Option<HandlerParamState<F::Param>>>>,
     _marker: PhantomData<fn() -> M>,
 }
 
@@ -289,6 +366,7 @@ where
     pub fn new(func: F) -> Self {
         Self {
             func: Arc::new(func),
+            state: Arc::new(RwLock::new(None)),
             _marker: PhantomData,
         }
     }
@@ -298,12 +376,31 @@ impl<M, F> EventHandler for FunctionEventHandler<M, F>
 where
     F: EventHandlerFn<M>,
 {
+    fn init(&self, world: WorldHandle) -> BoxFuture<'static, ()> {
+        let func = self.func.clone();
+        let state = self.state.clone();
+        async move {
+            let mut state = state.write().await;
+            state.replace(func.init_state(world).await);
+        }
+        .boxed()
+    }
+
+    fn is_initialized(&self) -> BoxFuture<'static, bool> {
+        let state = self.state.clone();
+        async move { state.read().await.is_some() }.boxed()
+    }
+
     fn run_dyn(&self, world: WorldHandle, event: DynEvent) -> BoxFuture<'static, ()> {
         let event: Event<<F as EventHandlerFn<M>>::Event> = Event::from_dyn_event(event);
         let func = self.func.clone();
+        let state = self.state.clone();
         async move {
-            if <F::Param>::can_run(world.clone()).await {
-                let param = <F::Param>::fetch(world.clone()).await;
+            let mut state_lock = state.write().await;
+            let state = state_lock.as_mut().unwrap();
+            if <F::Param>::can_run(world.clone(), state).await {
+                let param = <F::Param>::fetch(world.clone(), state).await;
+                drop(state_lock);
                 func.run(world, event, param).await;
             }
         }
@@ -333,6 +430,13 @@ where
     type Event = T;
     type Param = ();
 
+    fn init_state(
+        &self,
+        _world: WorldHandle,
+    ) -> BoxFuture<'static, HandlerParamState<Self::Param>> {
+        async move {}.boxed()
+    }
+
     fn run(
         &self,
         _world: WorldHandle,
@@ -356,6 +460,10 @@ macro_rules! impl_fn_event_handler {
         {
             type Event = Event;
             type Param = ($($param),*);
+
+            fn init_state(&self, world: WorldHandle) -> BoxFuture<'static, HandlerParamState<Self::Param>> {
+                <Self::Param as HandlerParam>::init_state(world).boxed()
+            }
 
             fn run(
                 &self,

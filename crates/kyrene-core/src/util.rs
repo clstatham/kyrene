@@ -8,6 +8,7 @@ use std::{
 #[derive(Clone, Copy)]
 pub struct TypeInfo {
     pub type_id: TypeId,
+    #[cfg(debug_assertions)]
     pub type_name: &'static str,
 }
 
@@ -15,6 +16,7 @@ impl TypeInfo {
     pub fn of<T: 'static>() -> Self {
         Self {
             type_id: TypeId::of::<T>(),
+            #[cfg(debug_assertions)]
             type_name: std::any::type_name::<T>(),
         }
     }
@@ -28,7 +30,14 @@ impl Hash for TypeInfo {
 
 impl Debug for TypeInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.type_name)
+        #[cfg(debug_assertions)]
+        {
+            write!(f, "{}", self.type_name)
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            write!(f, "{:?}", self.type_id)
+        }
     }
 }
 
@@ -68,11 +77,7 @@ pub struct TypeIdMap<T>(hashbrown::HashMap<TypeInfo, T, BuildHasherDefault<TypeI
 
 impl<T> TypeIdMap<T> {
     pub fn new() -> Self {
-        Self(hashbrown::HashMap::<
-            TypeInfo,
-            T,
-            BuildHasherDefault<TypeIdHasher>,
-        >::default())
+        Self(hashbrown::HashMap::default())
     }
 
     pub fn insert_for<K: 'static>(&mut self, value: T) -> Option<T> {
@@ -112,8 +117,48 @@ impl<T> DerefMut for TypeIdMap<T> {
     }
 }
 
-// pub type TypeIdMap<T> = hashbrown::HashMap<TypeId, T, BuildHasherDefault<TypeIdHasher>>;
-pub type TypeIdSet = hashbrown::HashSet<TypeInfo, BuildHasherDefault<TypeIdHasher>>;
+// pub type TypeIdSet = hashbrown::HashSet<TypeInfo, BuildHasherDefault<TypeIdHasher>>;
+
+#[derive(Clone, Debug, Default)]
+pub struct TypeIdSet(hashbrown::HashSet<TypeInfo, BuildHasherDefault<TypeIdHasher>>);
+
+impl TypeIdSet {
+    pub fn insert_for<T: 'static>(&mut self) -> bool {
+        self.0.insert(TypeInfo::of::<T>())
+    }
+
+    pub fn remove_for<T: 'static>(&mut self) -> bool {
+        self.0.remove(&TypeInfo::of::<T>())
+    }
+
+    pub fn contains_type<T: 'static>(&self) -> bool {
+        self.0.contains(&TypeInfo::of::<T>())
+    }
+}
+
+impl Deref for TypeIdSet {
+    type Target = hashbrown::HashSet<TypeInfo, BuildHasherDefault<TypeIdHasher>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for TypeIdSet {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl IntoIterator for TypeIdSet {
+    type Item = TypeInfo;
+    type IntoIter =
+        <hashbrown::HashSet<TypeInfo, BuildHasherDefault<TypeIdHasher>> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
 
 pub type FxHashMap<K, V> = hashbrown::HashMap<K, V, rustc_hash::FxBuildHasher>;
 pub type FxHashSet<T> = hashbrown::HashSet<T, rustc_hash::FxBuildHasher>;

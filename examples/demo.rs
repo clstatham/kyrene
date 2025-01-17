@@ -1,19 +1,17 @@
 use kyrene::prelude::*;
-use kyrene_core::world::WorldStartup;
+use kyrene_core::{handler::Local, world::WorldStartup};
 use kyrene_graphics::{
     window::{WindowSettings, WinitPlugin},
     WgpuPlugin,
 };
 
 #[derive(Debug, Clone)]
-struct FooEvent {
-    entity: Entity,
-}
+struct FooEvent;
 
-async fn foo_event_handler(event: Event<FooEvent>, world: WorldHandle) {
-    let mut counter = world.get_mut::<i32>(event.entity).await.unwrap();
-    *counter += 1;
-    println!("Handler 1: {} -> {}", *counter - 1, *counter);
+async fn foo_event_handler(_event: Event<FooEvent>, local: Local<usize>) {
+    let mut local = local.get_mut().await;
+    *local += 1;
+    println!("Handler 1: {} -> {}", *local - 1, *local);
 }
 
 async fn foo_event_handler_2(_event: Event<FooEvent>) {
@@ -21,7 +19,7 @@ async fn foo_event_handler_2(_event: Event<FooEvent>) {
 }
 
 async fn startup(_event: Event<WorldStartup>, world: WorldHandle) {
-    let entity = world.spawn((0i32, 0.0f32)).await;
+    let _entity = world.spawn((0i32, 0.0f32)).await;
 
     let _entity2 = world.spawn((0i32,)).await;
 
@@ -44,13 +42,12 @@ async fn startup(_event: Event<WorldStartup>, world: WorldHandle) {
             println!("{:?}, {:?}", *a, *b);
         })
         .await;
-
-    world.fire_event(FooEvent { entity }, true).await;
 }
 
-async fn world_tick(event: Event<WorldTick>) {
-    println!("{:?}", event.delta_time());
-}
+// async fn world_tick(event: Event<WorldTick>, world: WorldHandle) {
+//     println!("{:?}", event.delta_time());
+//     world.fire_event(FooEvent, true).await;
+// }
 
 fn main() {
     let mut world = World::new();
@@ -58,7 +55,7 @@ fn main() {
     world.add_plugin(WgpuPlugin);
 
     world.add_event_handler(startup);
-    world.add_event_handler(world_tick);
+    // world.add_event_handler(world_tick);
 
     world.add_event_handler(foo_event_handler);
     world.add_event_handler(foo_event_handler_2.after(foo_event_handler));

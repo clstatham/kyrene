@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 use async_fn_traits::AsyncFnMut2;
 use futures::StreamExt;
@@ -126,16 +126,29 @@ impl WorldHandle {
 
 impl HandlerParam for WorldHandle {
     type Item = WorldHandle;
+    type State = ();
 
     fn meta() -> EventHandlerMeta {
         EventHandlerMeta::default()
     }
 
-    async fn fetch(world: WorldHandle) -> Self::Item {
+    async fn init_state(_world: WorldHandle) -> Self::State {}
+
+    async fn fetch(world: WorldHandle, _: &mut ()) -> Self::Item {
         world.clone()
     }
 
-    async fn can_run(_world: WorldHandle) -> bool {
+    async fn can_run(_world: WorldHandle, _: &()) -> bool {
         true
+    }
+}
+
+pub trait FromWorldHandle: Sized {
+    fn from_world_handle(world: &WorldHandle) -> impl Future<Output = Self> + Send;
+}
+
+impl<T: Default> FromWorldHandle for T {
+    async fn from_world_handle(_world: &WorldHandle) -> Self {
+        Self::default()
     }
 }

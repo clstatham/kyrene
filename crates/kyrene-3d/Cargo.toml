@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 kyrene-core = { path = "../kyrene-core" }
 kyrene-graphics = { path = "../kyrene-graphics" }
+glam = { version = "0.29", features = ["bytemuck"] }
+encase = { version = "0.10", features = ["glam"] }

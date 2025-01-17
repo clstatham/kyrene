@@ -1438,6 +1438,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 name = "kyrene"
 version = "0.1.0"
 dependencies = [
+ "kyrene-3d",
  "kyrene-core",
  "kyrene-graphics",
  "kyrene-macro",
@@ -1447,6 +1448,8 @@ dependencies = [
 name = "kyrene-3d"
 version = "0.1.0"
 dependencies = [
+ "encase",
+ "glam",
  "kyrene-core",
  "kyrene-graphics",
 ]

@@ -7,6 +7,7 @@ use std::{
 };
 
 use petgraph::prelude::*;
+use tokio::task::JoinSet;
 
 use crate::{
     handler::{DynEventHandlers, IntoHandlerConfig},
@@ -167,7 +168,6 @@ impl DynEventDispatcher {
         let event: Arc<dyn Component> = Arc::new(event);
 
         let handlers = self.handlers.handlers.read().await;
-        let mut join_handles = Vec::new();
 
         // kahn's algorithm to process as many as possible at a time
 
@@ -215,24 +215,29 @@ impl DynEventDispatcher {
                 event: event.clone(),
             };
 
+            let mut join_handles = JoinSet::new();
+
             for node in batch {
                 let handler = handlers[node].clone();
-                let jh = tokio::spawn({
+                join_handles.spawn({
                     let world = world.clone();
                     let event = event.clone();
                     async move {
+                        if !handler.handler.is_initialized().await {
+                            handler.handler.init(world.clone()).await;
+                        }
+
                         if handler.meta.can_run(&world).await {
                             handler.handler.run_dyn(world, event).await;
                         }
                     }
                 });
-                join_handles.push(jh);
             }
 
             if await_all_handlers {
-                for handle in join_handles.drain(..) {
-                    handle.await.unwrap();
-                }
+                join_handles.join_all().await;
+            } else {
+                join_handles.detach_all();
             }
         }
 

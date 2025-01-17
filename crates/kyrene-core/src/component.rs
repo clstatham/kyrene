@@ -11,7 +11,7 @@ use itertools::Either;
 use crate::{
     bundle::Bundle,
     entity::{Entity, EntityMap, EntitySet},
-    lock::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock},
+    lock::{Read, RwLock, Write},
     util::{TypeIdMap, TypeInfo},
 };
 
@@ -72,7 +72,7 @@ impl ComponentStorage {
 }
 
 pub struct Ref<T: Component> {
-    pub(crate) inner: OwnedRwLockReadGuard<Option<DynComponent>>,
+    pub(crate) inner: Read<Option<DynComponent>>,
     pub(crate) _marker: PhantomData<T>,
 }
 
@@ -96,7 +96,7 @@ impl<T: Component + Debug> Debug for Ref<T> {
 }
 
 pub struct Mut<T: Component> {
-    pub(crate) inner: OwnedRwLockWriteGuard<Option<DynComponent>>,
+    pub(crate) inner: Write<Option<DynComponent>>,
     pub(crate) _marker: PhantomData<T>,
 }
 
