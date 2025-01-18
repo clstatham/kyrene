@@ -15,3 +15,6 @@ kyrene-3d = { path = "crates/kyrene-3d" }
 [[example]]
 name = "demo"
 path = "examples/demo.rs"
+
+[profile.release]
+debug = true

@@ -19,6 +19,7 @@ use texture::texture_format::{DEPTH_FORMAT, VIEW_FORMAT};
 use window::{RedrawRequested, WindowCreated};
 
 pub mod bind_group;
+pub mod buffer;
 pub mod camera;
 pub mod hdr;
 pub mod pipeline;
@@ -247,12 +248,12 @@ impl Plugin for WgpuPlugin {
 
 pub struct BeginRender;
 
-async fn redraw_requested(event: Event<RedrawRequested>, world: WorldHandle) {
+async fn redraw_requested(_event: Event<RedrawRequested>, world: WorldHandle) {
     if !world.has_resource::<Device>().await {
         return;
     }
     tracing::trace!("redraw_requested");
-    tracing::debug!("frame time: {:?}", event.delta_time());
+    // tracing::debug!("frame time: {:?}", event.delta_time());
     world.fire_event(InitRenderResources, true).await;
     world.fire_event(PreRender, true).await;
     world.fire_event(Render, true).await;

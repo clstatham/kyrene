@@ -119,6 +119,7 @@ impl RunWindow for World {
                             loop {
                                 tick += 1;
                                 world.fire_event(WorldTick { tick }, true).await;
+                                tokio::task::yield_now().await;
                             }
                         }
                     });
