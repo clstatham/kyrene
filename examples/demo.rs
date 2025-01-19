@@ -1,53 +1,19 @@
 use kyrene::prelude::*;
 use kyrene_core::{handler::Local, world::WorldStartup};
 use kyrene_graphics::{
+    clear_color::ClearColor,
+    color::Color,
     window::{RedrawRequested, WindowSettings, WinitPlugin},
     WgpuPlugin,
 };
 
-#[derive(Debug, Clone)]
-struct FooEvent;
-
-async fn foo_event_handler(_event: Event<FooEvent>, local: Local<usize>) {
-    let mut local = local.get_mut().await;
-    *local += 1;
-    println!("Handler 1: {} -> {}", *local - 1, *local);
-}
-
-async fn foo_event_handler_2(_event: Event<FooEvent>) {
-    println!("Handler 2");
-}
-
 async fn startup(_event: Event<WorldStartup>, world: WorldHandle) {
-    let _entity = world.spawn((0i32, 0.0f32)).await;
-
-    let _entity2 = world.spawn((0i32,)).await;
-
     world
-        .query_iter::<&i32>(|_world, n| async move {
-            println!("{:?}", *n);
-        })
-        .await;
-
-    world
-        .query_iter::<&f32>(|_world, n| async move {
-            println!("{:?}", *n);
-        })
-        .await;
-
-    world
-        .query_iter::<(&i32, &mut f32)>(|_world, (a, mut b)| async move {
-            println!("{:?}, {:?}", *a, *b);
-            *b += 1.0;
-            println!("{:?}, {:?}", *a, *b);
-        })
+        .insert_resource(ClearColor::new(Color::new(0.05, 0.05, 0.1, 1.0)))
         .await;
 }
 
-// async fn world_tick(event: Event<WorldTick>, world: WorldHandle) {
-//     println!("{:?}", event.delta_time());
-//     world.fire_event(FooEvent, true).await;
-// }
+async fn world_tick(_event: Event<WorldTick>, _world: WorldHandle) {}
 
 struct FrameTime {
     print_time: Duration,
@@ -89,11 +55,7 @@ fn main() {
 
     world.add_event_handler(startup);
     world.add_event_handler(print_frame_time);
-    // world.add_event_handler(world_tick);
-
-    world.add_event_handler(foo_event_handler);
-    world.add_event_handler(foo_event_handler_2.after(foo_event_handler));
+    world.add_event_handler(world_tick);
 
     world.run_window(WindowSettings::default());
-    // world.run();
 }

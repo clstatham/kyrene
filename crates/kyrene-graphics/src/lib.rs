@@ -5,6 +5,7 @@ use std::{
 
 use bind_group::BindGroupLayouts;
 use camera::{insert_view_target, GpuCamera, InsertViewTarget, ViewTarget};
+use clear_color::ClearColorPlugin;
 use hdr::HdrPlugin;
 use kyrene_core::{
     entity::Entity,
@@ -18,9 +19,13 @@ use pipeline::RenderPipelines;
 use texture::texture_format::{DEPTH_FORMAT, VIEW_FORMAT};
 use window::{RedrawRequested, WindowCreated};
 
+pub use wgpu;
+
 pub mod bind_group;
 pub mod buffer;
 pub mod camera;
+pub mod clear_color;
+pub mod color;
 pub mod hdr;
 pub mod pipeline;
 pub mod texture;
@@ -29,14 +34,14 @@ pub mod window;
 #[macro_export]
 macro_rules! wrap_wgpu {
     ($t:ident < $mark:ident : $tr:ident >) => {
-        pub struct $t<$mark: $tr>(wgpu::$t, ::std::marker::PhantomData<$mark>);
+        pub struct $t<$mark: $tr>($crate::wgpu::$t, ::std::marker::PhantomData<$mark>);
 
         impl<$mark: $tr> $t<$mark> {
-            pub fn new(inner: wgpu::$t) -> Self {
+            pub fn new(inner: $crate::wgpu::$t) -> Self {
                 Self(inner, ::std::marker::PhantomData)
             }
 
-            pub fn into_inner(this: Self) -> wgpu::$t {
+            pub fn into_inner(this: Self) -> $crate::wgpu::$t {
                 this.0
             }
         }
@@ -48,7 +53,7 @@ macro_rules! wrap_wgpu {
         }
 
         impl<$mark: $tr> ::std::ops::Deref for $t<$mark> {
-            type Target = wgpu::$t;
+            type Target = $crate::wgpu::$t;
 
             fn deref(&self) -> &Self::Target {
                 &self.0
@@ -58,20 +63,20 @@ macro_rules! wrap_wgpu {
 
     ($t:ident) => {
         #[derive(Clone)]
-        pub struct $t(wgpu::$t);
+        pub struct $t($crate::wgpu::$t);
 
         impl $t {
-            pub fn new(inner: wgpu::$t) -> Self {
+            pub fn new(inner: $crate::wgpu::$t) -> Self {
                 Self(inner)
             }
 
-            pub fn into_inner(this: Self) -> wgpu::$t {
+            pub fn into_inner(this: Self) -> $crate::wgpu::$t {
                 this.0
             }
         }
 
         impl ::std::ops::Deref for $t {
-            type Target = wgpu::$t;
+            type Target = $crate::wgpu::$t;
 
             fn deref(&self) -> &Self::Target {
                 &self.0
@@ -79,7 +84,7 @@ macro_rules! wrap_wgpu {
         }
 
         impl From<wgpu::$t> for $t {
-            fn from(inner: wgpu::$t) -> Self {
+            fn from(inner: $crate::wgpu::$t) -> Self {
                 Self::new(inner)
             }
         }
@@ -100,6 +105,20 @@ pub struct CurrentFrameInner {
 #[derive(Default)]
 pub struct CurrentFrame {
     pub inner: Option<CurrentFrameInner>,
+}
+
+impl CurrentFrame {
+    pub fn surface_texture(&self) -> Option<&wgpu::SurfaceTexture> {
+        self.inner.as_ref().map(|inner| &*inner.surface_texture)
+    }
+
+    pub fn color_view(&self) -> Option<&wgpu::TextureView> {
+        self.inner.as_ref().map(|inner| &*inner.color_view)
+    }
+
+    pub fn depth_view(&self) -> Option<&wgpu::TextureView> {
+        self.inner.as_ref().map(|inner| &*inner.depth_view)
+    }
 }
 
 pub struct DepthTexture {
@@ -242,6 +261,7 @@ impl Plugin for WgpuPlugin {
         world.insert_resource(BindGroupLayouts::default()).await;
         world.insert_resource(RenderPipelines::default()).await;
 
+        world.add_plugin(ClearColorPlugin::default());
         world.add_plugin(HdrPlugin);
     }
 }

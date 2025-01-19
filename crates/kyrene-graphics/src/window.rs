@@ -14,7 +14,7 @@ use winit::{
     dpi::LogicalSize, event::WindowEvent, event_loop::ControlFlow, window::WindowAttributes,
 };
 
-use crate::{Device, Queue};
+use crate::{color::Color, Device, Queue};
 
 #[derive(Clone)]
 pub struct Window(Arc<winit::window::Window>);
@@ -32,6 +32,7 @@ pub struct WindowSettings {
     pub title: String,
     pub width: u32,
     pub height: u32,
+    pub clear_color: Color,
 }
 
 impl Default for WindowSettings {
@@ -40,6 +41,7 @@ impl Default for WindowSettings {
             title: "kyrene".to_string(),
             width: 800,
             height: 600,
+            clear_color: Color::BLACK,
         }
     }
 }
