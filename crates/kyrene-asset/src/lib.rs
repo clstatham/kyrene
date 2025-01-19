@@ -30,6 +30,30 @@ impl DynAsset {
             asset: Box::new(asset),
         }
     }
+
+    pub fn downcast_ref<T: Asset>(&self) -> Option<&T> {
+        if self.type_id == TypeInfo::of::<T>() {
+            Some(self.asset.downcast_ref().unwrap_or_else(|| unreachable!()))
+        } else {
+            None
+        }
+    }
+
+    pub fn downcast_mut<T: Asset>(&mut self) -> Option<&mut T> {
+        if self.type_id == TypeInfo::of::<T>() {
+            Some(self.asset.downcast_mut().unwrap_or_else(|| unreachable!()))
+        } else {
+            None
+        }
+    }
+
+    pub fn downcast<T: Asset>(self) -> Result<T, Self> {
+        if self.type_id == TypeInfo::of::<T>() {
+            Ok(*self.asset.downcast().unwrap_or_else(|_| unreachable!()))
+        } else {
+            Err(self)
+        }
+    }
 }
 
 impl Debug for DynAsset {
@@ -85,12 +109,8 @@ impl<T: Asset> Handle<T> {
 }
 
 impl<T: Asset> Clone for Handle<T> {
-    #[allow(clippy::non_canonical_clone_impl)]
     fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            _marker: PhantomData,
-        }
+        *self
     }
 }
 
@@ -234,6 +254,12 @@ pub enum LoadSource {
     Existing(DynAsset),
 }
 
+impl LoadSource {
+    pub fn existing<T: Asset>(asset: T) -> Self {
+        Self::Existing(DynAsset::new(asset))
+    }
+}
+
 impl From<PathBuf> for LoadSource {
     fn from(path: PathBuf) -> Self {
         Self::Path(path)
@@ -260,12 +286,39 @@ impl From<&str> for LoadSource {
 
 pub trait Load: FromWorldHandle + Send + Sync + 'static {
     type Asset: Asset;
-    type Error: std::error::Error + Send + Sync + 'static;
+    type Error: Debug + Send + Sync + 'static;
 
     fn load(
         &self,
-        source: &LoadSource,
+        source: LoadSource,
+        world: WorldHandle,
     ) -> impl Future<Output = Result<Self::Asset, Self::Error>> + Send;
+}
+
+pub struct ExistingLoader<T: Asset>(PhantomData<T>);
+
+impl<T: Asset> Default for ExistingLoader<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T: Asset> Load for ExistingLoader<T> {
+    type Asset = T;
+    type Error = ();
+
+    async fn load(
+        &self,
+        source: LoadSource,
+        _world: WorldHandle,
+    ) -> Result<Self::Asset, Self::Error> {
+        match source {
+            LoadSource::Existing(asset) => {
+                Ok(*asset.asset.downcast().unwrap_or_else(|_| unreachable!()))
+            }
+            _ => Err(()),
+        }
+    }
 }
 
 pub struct LoadRequest<T: Asset> {
@@ -320,6 +373,12 @@ impl<L: Load> Plugin for AssetLoaderPlugin<L> {
             world.insert_resource(Loader::<L>::new()).await;
         }
 
+        if !world.has_resource::<Loader<ExistingLoader<L::Asset>>>() {
+            world
+                .insert_resource(Loader::<ExistingLoader<L::Asset>>::new())
+                .await;
+        }
+
         world.add_event_handler(load_assets::<L>);
     }
 }
@@ -341,6 +400,8 @@ pub trait WorldAssets {
         &self,
         source: impl Into<LoadSource> + Send,
     ) -> impl Future<Output = Handle<L::Asset>> + Send;
+
+    fn insert_asset<T: Asset>(&self, asset: T) -> impl Future<Output = Handle<T>> + Send;
 }
 
 impl WorldAssets for WorldHandle {
@@ -351,6 +412,11 @@ impl WorldAssets for WorldHandle {
         self.fire_event(LoadAssets::<L::Asset>::default(), false)
             .await;
         handle
+    }
+
+    async fn insert_asset<T: Asset>(&self, asset: T) -> Handle<T> {
+        self.load_asset::<ExistingLoader<T>>(LoadSource::existing(asset))
+            .await
     }
 }
 
@@ -378,16 +444,15 @@ async fn load_assets<L: Load>(
             continue;
         }
 
-        let source = Arc::new(source);
         join_set.spawn({
             let l = l.clone();
             let world = world.clone();
             async move {
-                let asset = l.get().await.load(&source).await;
+                let asset = l.get().await.load(source, world.clone()).await;
                 let asset = match asset {
                     Ok(asset) => asset,
                     Err(err) => {
-                        error!("Failed to load asset for {:?}: {}", handle, err);
+                        error!("Failed to load asset for {:?}: {:?}", handle, err);
                         return None;
                     }
                 };

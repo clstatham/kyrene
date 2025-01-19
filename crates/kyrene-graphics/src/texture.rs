@@ -1,3 +1,8 @@
+use kyrene_asset::{AssetLoaderPlugin, Load, LoadSource};
+use kyrene_core::{
+    plugin::Plugin,
+    prelude::{tokio, World, WorldHandle},
+};
 use wgpu::util::DeviceExt;
 
 pub mod texture_format {
@@ -66,6 +71,40 @@ impl Texture {
 
     pub fn resize(&mut self, width: u32, height: u32, filter: image::imageops::FilterType) {
         self.image = image::imageops::resize(&self.image, width, height, filter);
+    }
+}
+
+pub struct TexturePlugin;
+
+impl Plugin for TexturePlugin {
+    async fn build(self, world: &mut World) {
+        world.add_plugin(AssetLoaderPlugin::<TextureLoader>::default());
+    }
+}
+
+#[derive(Default)]
+pub struct TextureLoader;
+
+impl Load for TextureLoader {
+    type Asset = Texture;
+    type Error = image::ImageError;
+
+    async fn load(
+        &self,
+        source: LoadSource,
+        _world: WorldHandle,
+    ) -> Result<Self::Asset, Self::Error> {
+        let bytes = match source {
+            LoadSource::Path(path) => tokio::fs::read(path)
+                .await
+                .map_err(image::ImageError::IoError)?,
+            LoadSource::Bytes(bytes) => bytes,
+            LoadSource::Existing(asset) => return Ok(asset.downcast().unwrap()),
+        };
+
+        let image = image::load_from_memory(&bytes)?;
+
+        Ok(Texture::new(image.to_rgba8()))
     }
 }
 

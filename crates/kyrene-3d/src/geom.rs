@@ -1,12 +1,149 @@
 use encase::ShaderType;
 
 #[derive(Debug, Clone, Copy, PartialEq, ShaderType)]
+pub struct Vec2 {
+    value: glam::Vec2,
+}
+
+impl Vec2 {
+    pub const ZERO: Self = Self::new(0.0, 0.0);
+    pub const ONE: Self = Self::new(1.0, 1.0);
+    pub const NEG_ONE: Self = Self::new(-1.0, -1.0);
+
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self {
+            value: glam::Vec2::new(x, y),
+        }
+    }
+
+    pub fn x(&self) -> f32 {
+        self.value.x
+    }
+
+    pub fn y(&self) -> f32 {
+        self.value.y
+    }
+
+    pub fn set_x(&mut self, x: f32) {
+        self.value.x = x;
+    }
+
+    pub fn set_y(&mut self, y: f32) {
+        self.value.y = y;
+    }
+
+    pub fn length(&self) -> f32 {
+        self.value.length()
+    }
+
+    pub fn normalize(&mut self) {
+        self.value = self.value.normalize();
+    }
+
+    pub fn dot(&self, other: Self) -> f32 {
+        self.value.dot(other.value)
+    }
+
+    pub fn lerp(&self, other: Self, t: f32) -> Self {
+        Self {
+            value: self.value.lerp(other.value, t),
+        }
+    }
+}
+
+impl Default for Vec2 {
+    fn default() -> Self {
+        Self::new(0.0, 0.0)
+    }
+}
+
+impl std::ops::Add for Vec2 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            value: self.value + rhs.value,
+        }
+    }
+}
+
+impl std::ops::Sub for Vec2 {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            value: self.value - rhs.value,
+        }
+    }
+}
+
+impl std::ops::Mul<f32> for Vec2 {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            value: self.value * rhs,
+        }
+    }
+}
+
+impl std::ops::Div<f32> for Vec2 {
+    type Output = Self;
+
+    fn div(self, rhs: f32) -> Self {
+        Self {
+            value: self.value / rhs,
+        }
+    }
+}
+
+impl std::ops::AddAssign for Vec2 {
+    fn add_assign(&mut self, rhs: Self) {
+        self.value += rhs.value;
+    }
+}
+
+impl std::ops::SubAssign for Vec2 {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.value -= rhs.value;
+    }
+}
+
+impl std::ops::MulAssign<f32> for Vec2 {
+    fn mul_assign(&mut self, rhs: f32) {
+        self.value *= rhs;
+    }
+}
+
+impl std::ops::DivAssign<f32> for Vec2 {
+    fn div_assign(&mut self, rhs: f32) {
+        self.value /= rhs;
+    }
+}
+
+impl From<Vec2> for glam::Vec2 {
+    fn from(val: Vec2) -> Self {
+        val.value
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, ShaderType)]
 pub struct Vec3 {
     value: glam::Vec3,
 }
 
 impl Vec3 {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
+    pub const ZERO: Self = Self::new(0.0, 0.0, 0.0);
+    pub const ONE: Self = Self::new(1.0, 1.0, 1.0);
+    pub const NEG_ONE: Self = Self::new(-1.0, -1.0, -1.0);
+    pub const UP: Self = Self::new(0.0, 1.0, 0.0);
+    pub const DOWN: Self = Self::new(0.0, -1.0, 0.0);
+    pub const LEFT: Self = Self::new(-1.0, 0.0, 0.0);
+    pub const RIGHT: Self = Self::new(1.0, 0.0, 0.0);
+    pub const FORWARD: Self = Self::new(0.0, 0.0, -1.0);
+    pub const BACKWARD: Self = Self::new(0.0, 0.0, 1.0);
+
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Self {
             value: glam::Vec3::new(x, y, z),
         }

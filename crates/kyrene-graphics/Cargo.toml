@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 kyrene-core = { path = "../kyrene-core" }
+kyrene-asset = { path = "../kyrene-asset" }
 winit = "0.30.8"
 wgpu = "24.0"
 glam = { version = "0.29", features = ["bytemuck"] }
