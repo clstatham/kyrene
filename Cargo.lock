@@ -1439,6 +1439,7 @@ name = "kyrene"
 version = "0.1.0"
 dependencies = [
  "kyrene-3d",
+ "kyrene-asset",
  "kyrene-core",
  "kyrene-graphics",
  "kyrene-macro",
@@ -1452,6 +1453,15 @@ dependencies = [
  "glam",
  "kyrene-core",
  "kyrene-graphics",
+]
+
+[[package]]
+name = "kyrene-asset"
+version = "0.1.0"
+dependencies = [
+ "downcast-rs 2.0.1",
+ "kyrene-core",
+ "thiserror 2.0.11",
 ]
 
 [[package]]

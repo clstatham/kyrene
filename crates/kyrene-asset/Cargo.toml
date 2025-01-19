@@ -1,0 +1,9 @@
+[package]
+name = "kyrene-asset"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kyrene-core = { path = "../kyrene-core" }
+thiserror = "2.0"
+downcast-rs = "2.0"

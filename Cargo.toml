@@ -11,6 +11,7 @@ kyrene-core = { path = "crates/kyrene-core" }
 kyrene-macro = { path = "crates/kyrene-macro" }
 kyrene-graphics = { path = "crates/kyrene-graphics" }
 kyrene-3d = { path = "crates/kyrene-3d" }
+kyrene-asset = { path = "crates/kyrene-asset" }
 
 [[example]]
 name = "demo"
